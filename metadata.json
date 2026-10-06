@@ -1,0 +1,6 @@
+{
+  "name": "Obsidian Table VTT",
+  "description": "2D Virtual Tabletop (VTT) for D&D and tabletop RPGs featuring real-time 2D Raycasting dynamic lighting, two-layer Fog of War, terrain and wall editor, and WebSocket multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
