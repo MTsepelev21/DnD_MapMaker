@@ -251,6 +251,149 @@ export const DiceChatPanel: React.FC<DiceChatPanelProps> = ({
                   </div>
                 )}
 
+                {/* Spell Card Box */}
+                {msg.spellCard && (
+                  <div className="space-y-2 p-2.5 bg-slate-950/80 border border-amber-500/40 rounded-xl">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-300 text-xs">
+                        <span>✨</span>
+                        <span>{msg.spellCard.spellName}</span>
+                      </div>
+                      <span className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        {msg.spellCard.sizeFt} фт. ({msg.spellCard.shape})
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-300">
+                      <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">
+                        Задетые цели ({msg.spellCard.affectedTargets.length}):
+                      </div>
+                      {msg.spellCard.affectedTargets.length === 0 ? (
+                        <div className="text-slate-500 italic text-[11px]">
+                          Ни одно существо не попало в зону поражения.
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {msg.spellCard.affectedTargets.map((target) => (
+                            <div
+                              key={target.id}
+                              className="flex items-center justify-between text-xs px-2 py-1 rounded bg-slate-900 border border-slate-800"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: target.color }}
+                                />
+                                <span className="font-medium truncate text-slate-200">
+                                  {target.name}
+                                </span>
+                                <span
+                                  className={`text-[9px] px-1 py-0.2 rounded ${
+                                    target.faction === 'player'
+                                      ? 'bg-emerald-950 text-emerald-300'
+                                      : 'bg-rose-950 text-rose-300'
+                                  }`}
+                                >
+                                  {target.faction === 'player' ? 'Союзник' : 'Враг'}
+                                </span>
+                              </div>
+
+                              {target.saveResult ? (
+                                <div className="text-[11px] font-mono-tabular flex items-center gap-1">
+                                  <span className="text-slate-400">Спасбросок:</span>
+                                  <span
+                                    className={`font-bold ${
+                                      target.saveResult.isSuccess
+                                      ? 'text-emerald-400'
+                                      : 'text-rose-400'
+                                    }`}
+                                  >
+                                    d20({target.saveResult.roll})
+                                    {target.dexMod >= 0 ? `+${target.dexMod}` : target.dexMod} ={' '}
+                                    {target.saveResult.total}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-mono-tabular">
+                                  {msg.spellCard?.saveType || 'DEX'}:{' '}
+                                  {target.dexMod >= 0 ? `+${target.dexMod}` : target.dexMod}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* GM Action: Roll saving throws for all targets */}
+                    {role === 'GM' &&
+                      msg.spellCard.affectedTargets.length > 0 &&
+                      !msg.spellCard.affectedTargets.some((t) => t.saveResult) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundFX.playDiceRoll();
+                            const dc = 14; // Default standard spell save DC
+                            const updatedTargets = msg.spellCard!.affectedTargets.map((t) => {
+                              const roll = Math.floor(Math.random() * 20) + 1;
+                              const total = roll + t.dexMod;
+                              return {
+                                ...t,
+                                saveResult: {
+                                  roll,
+                                  total,
+                                  isSuccess: total >= dc,
+                                },
+                              };
+                            });
+
+                            const saveSummary = updatedTargets
+                              .map(
+                                (t) =>
+                                  `${t.name}: ${t.saveResult?.total} (${
+                                    t.saveResult?.isSuccess ? 'Успех' : 'Провал'
+                                  })`
+                              )
+                              .join(', ');
+
+                            const statNames: Record<string, string> = {
+                              DEX: 'Ловкости',
+                              CON: 'Телосложения',
+                              WIS: 'Мудрости',
+                              STR: 'Силы',
+                              INT: 'Интеллекта',
+                              CHA: 'Харизмы',
+                            };
+                            const statRu = statNames[msg.spellCard!.saveType] || msg.spellCard!.saveType;
+
+                            onSendMessage({
+                              id: `save-${Date.now()}`,
+                              senderName: 'Мастер (D&D Спасброски)',
+                              senderRole: 'GM',
+                              senderColor: '#A855F7',
+                              text: `🎲 Спасброски ${statRu} против ${
+                                msg.spellCard!.spellName
+                              } (DC ${dc}): ${saveSummary}`,
+                              timestamp: Date.now(),
+                            });
+                          }}
+                          className="w-full mt-2 py-1.5 px-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Бросить спасброски {
+                            msg.spellCard.saveType === 'DEX' ? 'Ловкости' :
+                            msg.spellCard.saveType === 'CON' ? 'Телосложения' :
+                            msg.spellCard.saveType === 'WIS' ? 'Мудрости' :
+                            msg.spellCard.saveType === 'STR' ? 'Силы' :
+                            msg.spellCard.saveType === 'INT' ? 'Интеллекта' :
+                            msg.spellCard.saveType === 'CHA' ? 'Харизмы' :
+                            msg.spellCard.saveType
+                          } для всех целей
+                        </button>
+                      )}
+                  </div>
+                )}
+
                 {/* Plain Text Message */}
                 {msg.text && (
                   <p className="text-slate-200 leading-relaxed text-xs break-words">{msg.text}</p>

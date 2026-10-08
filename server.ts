@@ -26,6 +26,7 @@ import {
   GlobalMusicState,
   OneShotSfxType,
 } from './src/types/vtt';
+import { SpellTemplate, SpellCastEffect } from './src/types/spells';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -401,10 +402,9 @@ async function startServer() {
 
       // Permission check:
       // GM can move any token.
-      // PLAYER can move their assigned token, or any player-faction token not locked to someone else.
+      // PLAYER can move any player-faction token, or tokens assigned to all/clientId
       const isAllowed =
         sender.role === 'GM' ||
-        sender.assignedTokenId === token.id ||
         token.controlledBy === sender.clientId ||
         token.controlledBy === 'all' ||
         token.faction === 'player';
@@ -504,12 +504,8 @@ async function startServer() {
       const sender = room.peers.get(socket.id);
       if (!sender) return;
 
-      // Players can only update their own token's light/HP; GM can update anything
-      if (
-        sender.role !== 'GM' &&
-        sender.assignedTokenId !== updatedToken.id &&
-        updatedToken.faction !== 'player'
-      ) {
+      // Players can update player tokens; GM can update any token
+      if (sender.role !== 'GM' && updatedToken.faction !== 'player') {
         return;
       }
 
@@ -851,6 +847,62 @@ async function startServer() {
     // Audio Engine: One-Shot SFX Broadcast (Both GM & Players)
     socket.on('sfx:broadcast', (payload: { type: OneShotSfxType; volume?: number }) => {
       io.to(currentRoomId).emit('sfx:played', payload);
+    });
+
+    // AoE Spell Templates Synchronizer (Real-time placement, orientation, moving, deletion, cast effects)
+    socket.on('spell:place', (template: SpellTemplate) => {
+      const room = getOrCreateRoom(currentRoomId);
+      if (!room.map.spellTemplates) room.map.spellTemplates = [];
+      const idx = room.map.spellTemplates.findIndex((t) => t.id === template.id);
+      if (idx !== -1) {
+        room.map.spellTemplates[idx] = template;
+      } else {
+        room.map.spellTemplates.push(template);
+      }
+      io.to(currentRoomId).emit('spell:placed', template);
+    });
+
+    socket.on('spell:placed', (template: SpellTemplate) => {
+      const room = getOrCreateRoom(currentRoomId);
+      if (!room.map.spellTemplates) room.map.spellTemplates = [];
+      const idx = room.map.spellTemplates.findIndex((t) => t.id === template.id);
+      if (idx !== -1) {
+        room.map.spellTemplates[idx] = template;
+      } else {
+        room.map.spellTemplates.push(template);
+      }
+      io.to(currentRoomId).emit('spell:placed', template);
+    });
+
+    const handleSpellUpdate = (template: SpellTemplate) => {
+      const room = getOrCreateRoom(currentRoomId);
+      if (!room.map.spellTemplates) room.map.spellTemplates = [];
+      const idx = room.map.spellTemplates.findIndex((t) => t.id === template.id);
+      if (idx !== -1) {
+        room.map.spellTemplates[idx] = template;
+        io.to(currentRoomId).emit('spell:updated', template);
+        io.to(currentRoomId).emit('spell:moved', template);
+      }
+    };
+    socket.on('spell:update', handleSpellUpdate);
+    socket.on('spell:move', handleSpellUpdate);
+    socket.on('spell:moved', handleSpellUpdate);
+
+    const handleSpellDelete = (templateId: string) => {
+      const room = getOrCreateRoom(currentRoomId);
+      if (room.map.spellTemplates) {
+        room.map.spellTemplates = room.map.spellTemplates.filter((t) => t.id !== templateId);
+      }
+      io.to(currentRoomId).emit('spell:deleted', templateId);
+      io.to(currentRoomId).emit('spell:removed', templateId);
+    };
+    socket.on('spell:delete', handleSpellDelete);
+    socket.on('spell:remove', handleSpellDelete);
+    socket.on('spell:removed', handleSpellDelete);
+
+    // Spell cast visual burst effect broadcast (expanding shockwave & particles)
+    socket.on('spell:cast_effect', (effect: SpellCastEffect) => {
+      io.to(currentRoomId).emit('spell:cast_effect', effect);
     });
 
     socket.on('disconnect', () => {

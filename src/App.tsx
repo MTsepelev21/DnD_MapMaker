@@ -40,6 +40,7 @@ import {
   Users,
   Volume2,
   VolumeX,
+  Wand2,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -79,6 +80,15 @@ import { DiceChatPanel } from './components/DiceChatPanel';
 import { InitiativeTracker } from './components/InitiativeTracker';
 import { TokenWidgetHUD } from './components/TokenWidgetHUD';
 import { AudioSoundboard } from './components/AudioSoundboard';
+import { SpellTemplateBar } from './components/SpellTemplateBar';
+import {
+  SpellPresetConfig,
+  SpellShapeType,
+  SpellTemplate,
+  SpellColorTheme,
+  SpellCastEffect,
+} from './types/spells';
+import { POPULAR_DND_SPELLS, detectAffectedTokens } from './engine/spellTemplates';
 import { soundFX } from './utils/sound';
 import { spatialAudio } from './utils/audioManager';
 
@@ -139,7 +149,6 @@ export default function App() {
   );
   const [gmKey, setGmKey] = useState<string>('');
   const [gmKeyInput, setGmKeyInput] = useState<string>('');
-  const [assignedTokenId, setAssignedTokenId] = useState<string>('tok-kaelen');
   const [serverAntiCheatCulling, setServerAntiCheatCulling] = useState<boolean>(false);
   const [copiedInvite, setCopiedInvite] = useState<boolean>(false);
   const [showLobbyModal, setShowLobbyModal] = useState<boolean>(false);
@@ -208,6 +217,16 @@ export default function App() {
     y: 350,
   });
 
+  // AoE Spell Templates State
+  const [activeSpellPreset, setActiveSpellPreset] = useState<SpellPresetConfig>(POPULAR_DND_SPELLS[0]);
+  const [spellShape, setSpellShape] = useState<SpellShapeType>(POPULAR_DND_SPELLS[0].shape);
+  const [spellRangeFt, setSpellRangeFt] = useState<number>(POPULAR_DND_SPELLS[0].rangeFt);
+  const [spellConeAngleDeg, setSpellConeAngleDeg] = useState<number>(53.13);
+  const [spellTheme, setSpellTheme] = useState<SpellColorTheme>(POPULAR_DND_SPELLS[0].theme);
+  const [spellBlockByWalls, setSpellBlockByWalls] = useState<boolean>(true);
+  const [selectedSpellTemplateId, setSelectedSpellTemplateId] = useState<string | null>(null);
+  const [castEffects, setCastEffects] = useState<SpellCastEffect[]>([]);
+
   // Stage 4 & 5 Real-time Multiplayer Entities
   const [peers, setPeers] = useState<ConnectedPeer[]>([]);
   const [pings, setPings] = useState<MapPing[]>([]);
@@ -259,12 +278,9 @@ export default function App() {
         setGmKey(state.gmKey);
       }
       setServerAntiCheatCulling(state.serverAntiCheatCulling);
-      if (state.assignedTokenId) {
-        setAssignedTokenId(state.assignedTokenId);
-        if (state.yourRole === 'PLAYER') {
-          setActiveTokenId(state.assignedTokenId);
-          setSelectedTokenId(state.assignedTokenId);
-        }
+      if (state.assignedTokenId && state.yourRole === 'PLAYER') {
+        setActiveTokenId(state.assignedTokenId);
+        setSelectedTokenId(state.assignedTokenId);
       }
       setMapData(state.map);
       if (state.map.combat) {
@@ -296,7 +312,6 @@ export default function App() {
     });
 
     socket.on('peer:token-assigned', (newTokenId: string) => {
-      setAssignedTokenId(newTokenId);
       setActiveTokenId(newTokenId);
       setSelectedTokenId(newTokenId);
       soundFX.playPing();
@@ -529,6 +544,62 @@ export default function App() {
       spatialAudio.playOneShotSfx(payload.type, payload.volume || 1.0);
     });
 
+    // AoE Spell Templates Synchronizer (Socket.io)
+    socket.on('spell:placed', (template: SpellTemplate) => {
+      setMapData((prev) => {
+        const current = prev.spellTemplates || [];
+        if (current.some((t) => t.id === template.id)) {
+          return {
+            ...prev,
+            spellTemplates: current.map((t) => (t.id === template.id ? template : t)),
+          };
+        }
+        return { ...prev, spellTemplates: [...current, template] };
+      });
+
+      // Also trigger a local cast visual effect for incoming placed spells
+      const effect: SpellCastEffect = {
+        id: `cast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        spellName: template.name,
+        x: template.x,
+        y: template.y,
+        shape: template.shape,
+        radiusPx: (template.radiusFt / 5) * 50,
+        angle: template.angle,
+        coneHalfAngle: template.coneAngleDeg ? (template.coneAngleDeg * Math.PI) / 360 : undefined,
+        widthPx: ((template.widthFt || 5) / 5) * 50,
+        theme: template.theme,
+        startTime: performance.now(),
+        durationMs: 950,
+      };
+      setCastEffects((prev) => [...prev, effect]);
+    });
+
+    const handleSpellUpdateSocket = (template: SpellTemplate) => {
+      setMapData((prev) => {
+        const current = prev.spellTemplates || [];
+        return {
+          ...prev,
+          spellTemplates: current.map((t) => (t.id === template.id ? template : t)),
+        };
+      });
+    };
+    socket.on('spell:updated', handleSpellUpdateSocket);
+    socket.on('spell:moved', handleSpellUpdateSocket);
+
+    const handleSpellDeleteSocket = (templateId: string) => {
+      setMapData((prev) => ({
+        ...prev,
+        spellTemplates: (prev.spellTemplates || []).filter((t) => t.id !== templateId),
+      }));
+    };
+    socket.on('spell:deleted', handleSpellDeleteSocket);
+    socket.on('spell:removed', handleSpellDeleteSocket);
+
+    socket.on('spell:cast_effect', (effect: SpellCastEffect) => {
+      setCastEffects((prev) => [...prev, effect]);
+    });
+
     return () => {
       socket.disconnect();
     };
@@ -540,8 +611,8 @@ export default function App() {
   useEffect(() => {
     const cs = mapData.cellSize || 50;
     const heroToken =
-      mapData.tokens.find((t) => t.id === assignedTokenId) ||
       mapData.tokens.find((t) => t.id === activeTokenId) ||
+      mapData.tokens.find((t) => t.id === selectedTokenId) ||
       mapData.tokens.find((t) => t.faction === 'player') ||
       mapData.tokens[0];
 
@@ -557,7 +628,7 @@ export default function App() {
     mapData.audioSources,
     mapData.walls,
     mapData.tokens,
-    assignedTokenId,
+    selectedTokenId,
     activeTokenId,
     mapData.cellSize,
     mapData.cols,
@@ -585,8 +656,8 @@ export default function App() {
       else if (key === 'd' && gameMode === 'edit' && role === 'GM') setToolMode('door');
       else if (key === 'e' && gameMode === 'edit' && role === 'GM') setToolMode('eraser');
       else if (key === 't') {
-        // Hotkey 'T': Focus camera on assigned hero token!
-        const targetId = assignedTokenId || activeTokenId;
+        // Hotkey 'T': Focus camera on active or selected token!
+        const targetId = selectedTokenId || activeTokenId;
         if (targetId) {
           setFocusTokenTrigger({ tokenId: targetId, timestamp: Date.now() });
           soundFX.playStep();
@@ -598,7 +669,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gameMode, role, assignedTokenId, activeTokenId]);
+  }, [gameMode, role, selectedTokenId, activeTokenId]);
 
   // Role & Mode Switcher handler
   const handleRoleAndModeSwitch = (targetRole: UserRole) => {
@@ -610,9 +681,7 @@ export default function App() {
       if (['wall', 'door', 'eraser', 'terrain', 'fog_brush'].includes(toolMode)) {
         setToolMode('select');
       }
-      const hero =
-        mapData.tokens.find((t) => t.id === assignedTokenId) ||
-        mapData.tokens.find((t) => t.faction === 'player');
+      const hero = mapData.tokens.find((t) => t.faction === 'player');
       if (hero) {
         setActiveTokenId(hero.id);
         setSelectedTokenId(hero.id);
@@ -651,7 +720,6 @@ export default function App() {
       playerName: playerName.trim() || (targetRole === 'GM' ? 'Мастер (GM)' : 'Игрок'),
       preferredRole: targetRole,
       gmKey: gmKeyInput.trim() || gmKey || undefined,
-      assignedTokenId,
     });
     setShowLobbyModal(false);
   };
@@ -1074,11 +1142,166 @@ export default function App() {
     socketRef.current?.emit('map:update-settings', { cellSize: validSize });
   };
 
+  // AoE Spell Template Placement & Calculations
+  const cs = mapData.cellSize || 50;
+  const casterToken =
+    mapData.tokens.find((t) => t.id === selectedTokenId) ||
+    mapData.tokens.find((t) => t.id === activeTokenId) ||
+    mapData.tokens.find((t) => t.faction === 'player') ||
+    mapData.tokens[0];
+  const casterCenterPt = casterToken
+    ? {
+        x: (casterToken.x + casterToken.size / 2) * cs,
+        y: (casterToken.y + casterToken.size / 2) * cs,
+      }
+    : cursorWorld;
+
+  // For cone and line, origin is caster token center, angle points toward cursor
+  // For circle and cube, origin is cursor world position
+  const isCasterOriginShape = spellShape === 'cone' || spellShape === 'line';
+  const spellOriginX = isCasterOriginShape ? casterCenterPt.x : cursorWorld.x;
+  const spellOriginY = isCasterOriginShape ? casterCenterPt.y : cursorWorld.y;
+
+  const spellAngle = isCasterOriginShape
+    ? Math.atan2(cursorWorld.y - casterCenterPt.y, cursorWorld.x - casterCenterPt.x)
+    : 0;
+
+  const activeSpellPreview: SpellTemplate | null =
+    toolMode === 'spell'
+      ? {
+          id: 'preview-spell',
+          name: activeSpellPreset.name,
+          shape: spellShape,
+          x: spellOriginX,
+          y: spellOriginY,
+          radiusFt: spellRangeFt,
+          widthFt: activeSpellPreset.widthFt || 5,
+          coneAngleDeg: spellShape === 'cone' ? spellConeAngleDeg : undefined,
+          angle: spellAngle,
+          theme: spellTheme,
+          color: activeSpellPreset.theme,
+          fillColor: '',
+          borderColor: '',
+          blockByWalls: spellBlockByWalls,
+          casterTokenId: casterToken?.id,
+          casterName: casterToken?.name || playerName,
+          saveType: activeSpellPreset.saveType,
+          createdAt: Date.now(),
+        }
+      : null;
+
+  // Detect affected tokens in real-time for preview + placed templates
+  const previewAffectedIds = activeSpellPreview
+    ? detectAffectedTokens(activeSpellPreview, mapData.tokens, cs, mapData.walls)
+    : [];
+
+  const placedSpellTemplates = mapData.spellTemplates || [];
+  const placedAffectedIds = placedSpellTemplates.flatMap((t) =>
+    detectAffectedTokens(t, mapData.tokens, cs, mapData.walls)
+  );
+
+  const combinedAffectedTokenIds = Array.from(new Set([...previewAffectedIds, ...placedAffectedIds]));
+
+  // Auto-prune completed spell cast burst visual effects
+  useEffect(() => {
+    if (castEffects.length === 0) return;
+    const timer = setTimeout(() => {
+      const now = performance.now();
+      setCastEffects((prev) => prev.filter((eff) => now - eff.startTime < eff.durationMs));
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [castEffects]);
+
+  const handlePlaceSpellTemplate = (template: SpellTemplate) => {
+    const newTemplate: SpellTemplate = {
+      ...template,
+      id: `spell-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: Date.now(),
+    };
+
+    // Calculate affected targets
+    const affectedIds = detectAffectedTokens(newTemplate, mapData.tokens, cs, mapData.walls);
+    const affectedTokens = mapData.tokens.filter((tok) => affectedIds.includes(tok.id));
+
+    setMapData((prev) => {
+      const cur = prev.spellTemplates || [];
+      return { ...prev, spellTemplates: [...cur, newTemplate] };
+    });
+    socketRef.current?.emit('spell:place', newTemplate);
+
+    // Trigger local and multiplayer cast shockwave & burst VFX
+    const effect: SpellCastEffect = {
+      id: `cast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      spellName: newTemplate.name,
+      x: newTemplate.x,
+      y: newTemplate.y,
+      shape: newTemplate.shape,
+      radiusPx: (newTemplate.radiusFt / 5) * cs,
+      angle: newTemplate.angle,
+      coneHalfAngle: newTemplate.coneAngleDeg ? (newTemplate.coneAngleDeg * Math.PI) / 360 : undefined,
+      widthPx: ((newTemplate.widthFt || 5) / 5) * cs,
+      theme: newTemplate.theme,
+      startTime: performance.now(),
+      durationMs: 950,
+    };
+    setCastEffects((prev) => [...prev, effect]);
+    socketRef.current?.emit('spell:cast_effect', effect);
+
+    // Send formatted Spell Card to Game Log / Chat
+    const spellCard = {
+      spellName: newTemplate.name,
+      shape: newTemplate.shape,
+      sizeFt: newTemplate.radiusFt,
+      saveType: newTemplate.saveType || 'DEX',
+      casterName: playerName,
+      affectedTargets: affectedTokens.map((t) => {
+        // Derive approximate Dexterity / Save modifier from AC or HP
+        const dexMod = Math.min(5, Math.max(-2, Math.floor(((t.ac || 10) - 10) / 2)));
+        return {
+          id: t.id,
+          name: t.name,
+          faction: t.faction === 'player' ? ('player' as const) : ('monster' as const),
+          color: t.color,
+          dexMod,
+        };
+      }),
+      dc: 14,
+      timestamp: Date.now(),
+    };
+
+    handleSendChatMessage({
+      id: `msg-${Date.now()}`,
+      senderName: playerName,
+      senderRole: role,
+      senderColor: casterToken?.color || '#F59E0B',
+      text: `✨ ${playerName} кастует [${newTemplate.name}]! Задето целей: ${affectedTokens.length}.`,
+      spellCard,
+      timestamp: Date.now(),
+    });
+  };
+
+  const handleMoveSpellTemplate = (updated: SpellTemplate) => {
+    setMapData((prev) => ({
+      ...prev,
+      spellTemplates: (prev.spellTemplates || []).map((t) => (t.id === updated.id ? updated : t)),
+    }));
+    socketRef.current?.emit('spell:move', updated);
+    socketRef.current?.emit('spell:moved', updated);
+  };
+
+  const handleDeleteSpellTemplate = (templateId: string) => {
+    setMapData((prev) => ({
+      ...prev,
+      spellTemplates: (prev.spellTemplates || []).filter((t) => t.id !== templateId),
+    }));
+    socketRef.current?.emit('spell:delete', templateId);
+    socketRef.current?.emit('spell:removed', templateId);
+  };
+
   const selectedToken = mapData.tokens.find((t) => t.id === selectedTokenId) || null;
   const selectedWall = mapData.walls.find((w) => w.id === selectedWallId) || null;
   const activeVisionToken =
     mapData.tokens.find((t) => t.id === activeTokenId) || mapData.tokens[0];
-  const assignedTokenObj = mapData.tokens.find((t) => t.id === assignedTokenId);
 
   const colLetter = String.fromCharCode(65 + (cursorWorld.col % 26));
 
@@ -1267,16 +1490,18 @@ export default function App() {
 
             <button
               onClick={() => {
-                const targetId = assignedTokenId || activeTokenId;
-                if (targetId) {
-                  setFocusTokenTrigger({ tokenId: targetId, timestamp: Date.now() });
-                  soundFX.playStep();
-                }
+                const nextMode = toolMode === 'spell' ? 'select' : 'spell';
+                setToolMode(nextMode);
+                soundFX.playPing();
               }}
-              title="Центрировать камеру на своем герое (Клавиша T)"
-              className="w-11 h-11 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800/80 hover:text-amber-400 transition-colors"
+              title="Шаблоны зон поражения заклинаний AoE (Клавиша A или Заклинания)"
+              className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
+                toolMode === 'spell'
+                  ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/50'
+                  : 'text-amber-400 hover:bg-slate-800/80 hover:text-amber-300'
+              }`}
             >
-              <Compass className="w-5 h-5" />
+              <Wand2 className="w-5 h-5" />
             </button>
 
             <div className="w-8 h-px bg-slate-800 my-1" />
@@ -1457,7 +1682,6 @@ export default function App() {
             role={role}
             gameMode={gameMode}
             yourClientId={clientId}
-            assignedTokenId={assignedTokenId}
             activeTokenId={activeTokenId}
             selectedTokenId={selectedTokenId}
             selectedWallId={selectedWallId}
@@ -1507,9 +1731,49 @@ export default function App() {
                 });
               }
             }}
+            activeSpellPreview={activeSpellPreview}
+            placedSpellTemplates={placedSpellTemplates}
+            affectedTokenIds={combinedAffectedTokenIds}
+            selectedSpellTemplateId={selectedSpellTemplateId}
+            onPlaceSpellTemplate={handlePlaceSpellTemplate}
+            onMoveSpellTemplate={handleMoveSpellTemplate}
+            onSelectSpellTemplate={setSelectedSpellTemplateId}
+            onDeleteSpellTemplate={handleDeleteSpellTemplate}
+            activeCastEffects={castEffects}
             zoom={zoom}
             onZoomChange={setZoom}
           />
+
+          {/* Floating AoE Spell Template Control Bar when toolMode === 'spell' */}
+          {toolMode === 'spell' && (
+            <SpellTemplateBar
+              activePreset={activeSpellPreset}
+              customShape={spellShape}
+              customRangeFt={spellRangeFt}
+              customTheme={spellTheme}
+              coneAngleDeg={spellConeAngleDeg}
+              blockByWalls={spellBlockByWalls}
+              placedTemplates={placedSpellTemplates}
+              selectedTemplateId={selectedSpellTemplateId}
+              onSelectPreset={(p) => {
+                setActiveSpellPreset(p);
+                setSpellShape(p.shape);
+                setSpellRangeFt(p.rangeFt);
+                setSpellTheme(p.theme);
+                if (p.coneAngleDeg) {
+                  setSpellConeAngleDeg(p.coneAngleDeg);
+                }
+              }}
+              onChangeShape={setSpellShape}
+              onChangeRangeFt={setSpellRangeFt}
+              onChangeTheme={setSpellTheme}
+              onChangeConeAngleDeg={setSpellConeAngleDeg}
+              onToggleBlockByWalls={setSpellBlockByWalls}
+              onDeleteTemplate={handleDeleteSpellTemplate}
+              onSelectTemplate={setSelectedSpellTemplateId}
+              onClose={() => setToolMode('select')}
+            />
+          )}
 
           {/* Floating Selected Token Widget HUD */}
           {selectedToken && (
@@ -1519,7 +1783,6 @@ export default function App() {
                 role={role}
                 isOwnerOrGM={
                   role === 'GM' ||
-                  selectedToken.id === assignedTokenId ||
                   selectedToken.faction === 'player'
                 }
                 onUpdateToken={handleUpdateToken}
@@ -1577,17 +1840,11 @@ export default function App() {
                 {cursorWorld.row + 1} ({cursorWorld.x}, {cursorWorld.y} px)
               </span>
               <span aria-hidden="true">·</span>
-              <span>
-                Ваш герой:{' '}
-                <strong className="text-emerald-400">
-                  {assignedTokenObj?.name || 'Не назначен'}
-                </strong>
-              </span>
-              <span aria-hidden="true">·</span>
               <span className="text-slate-400">
-                Горячие клавиши: <kbd className="text-amber-400">T</kbd> герой,{' '}
+                Горячие клавиши: <kbd className="text-amber-400">V</kbd> выбор,{' '}
                 <kbd className="text-amber-400">R</kbd> линейка,{' '}
-                <kbd className="text-amber-400">P</kbd> пинг
+                <kbd className="text-amber-400">P</kbd> пинг,{' '}
+                <kbd className="text-amber-400">A</kbd> заклинания
               </span>
             </div>
 
@@ -2101,25 +2358,6 @@ export default function App() {
                     </div>
                   </button>
                 </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">
-                  Назначенный персонаж:
-                </label>
-                <select
-                  value={assignedTokenId}
-                  onChange={(e) => setAssignedTokenId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-lg text-slate-100"
-                >
-                  {mapData.tokens
-                    .filter((t) => role === 'GM' || t.faction === 'player')
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.faction === 'player' ? 'Герой' : 'Монстр'})
-                      </option>
-                    ))}
-                </select>
               </div>
 
               <div className="pt-2 flex flex-col gap-2">

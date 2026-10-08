@@ -1,3 +1,5 @@
+import { SpellCardData, SpellTemplate } from './spells';
+
 export interface Point {
   x: number;
   y: number;
@@ -91,7 +93,8 @@ export type ToolMode =
   | 'measure'     // Measure distance in feet (5ft per square)
   | 'ping'        // Emit attention ping on map (also Alt + Left Click)
   | 'fog_brush'   // GM manual Fog of War brush (reveal / hide)
-  | 'audio';      // GM positional audio source placer
+  | 'audio'       // GM positional audio source placer
+  | 'spell';      // AoE Spell template placer & aimer
 
 export type FogBrushAction = 'reveal' | 'hide';
 export type GameMode = 'play' | 'edit';
@@ -215,6 +218,7 @@ export interface MapData {
   combat?: CombatState;
   audioSources?: PositionalAudioSource[];
   globalMusic?: GlobalMusicState;
+  spellTemplates?: SpellTemplate[];
 }
 
 export interface ConnectedPeer {
@@ -285,6 +289,7 @@ export interface ChatMessage {
   senderColor: string;
   text?: string;
   roll?: DiceRollResult;
+  spellCard?: SpellCardData;
   isSecretGm?: boolean;
   timestamp: number;
 }

@@ -19,7 +19,9 @@ import {
   UserRole,
   WallSegment,
 } from '../types/vtt';
+import { SpellTemplate, SpellCastEffect } from '../types/spells';
 import { computeVisibilityPolygon, isInFieldOfView } from '../engine/raycaster';
+import { SpellTemplateManager, drawSpellTemplate } from '../engine/spellTemplates';
 import { soundFX } from '../utils/sound';
 
 interface VTTCanvasProps {
@@ -27,7 +29,6 @@ interface VTTCanvasProps {
   role: UserRole;
   gameMode: GameMode;
   yourClientId: string;
-  assignedTokenId: string;
   activeTokenId: string;
   selectedTokenId: string | null;
   selectedWallId: string | null;
@@ -74,6 +75,15 @@ interface VTTCanvasProps {
   onSelectAudioSource?: (id: string | null) => void;
   onMoveAudioSource?: (id: string, x: number, y: number) => void;
   onCreateAudioSourceAt?: (x: number, y: number) => void;
+  activeSpellPreview?: SpellTemplate | null;
+  placedSpellTemplates?: SpellTemplate[];
+  affectedTokenIds?: string[];
+  selectedSpellTemplateId?: string | null;
+  onPlaceSpellTemplate?: (template: SpellTemplate) => void;
+  onMoveSpellTemplate?: (template: SpellTemplate) => void;
+  onSelectSpellTemplate?: (id: string | null) => void;
+  onDeleteSpellTemplate?: (id: string) => void;
+  activeCastEffects?: SpellCastEffect[];
   zoom: number;
   onZoomChange: (newZoom: number) => void;
 }
@@ -104,7 +114,6 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
   role,
   gameMode,
   yourClientId,
-  assignedTokenId,
   activeTokenId,
   selectedTokenId,
   selectedWallId,
@@ -133,6 +142,15 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
   onSelectAudioSource,
   onMoveAudioSource,
   onCreateAudioSourceAt,
+  activeSpellPreview,
+  placedSpellTemplates = [],
+  affectedTokenIds = [],
+  selectedSpellTemplateId,
+  onPlaceSpellTemplate,
+  onMoveSpellTemplate,
+  onSelectSpellTemplate,
+  onDeleteSpellTemplate,
+  activeCastEffects = [],
   onActivateVisionToken,
   onMoveToken,
   onCreateWall,
@@ -149,6 +167,13 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingAudioSourceRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const smoothSpellAngleRef = useRef<number>(0);
+  const draggingSpellTemplateRef = useRef<{
+    id: string;
+    isRotating: boolean;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
 
   // Stage 3: Two-layer Fog of War offscreen canvases
   const exploredCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -381,15 +406,13 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
   // Check if current client is allowed to drag a given token
   const canControlToken = useCallback(
     (tok: Token): boolean => {
-      if (role === 'GM' && gameMode === 'edit') return true;
       if (role === 'GM') return true;
-      // Player role: can control their assigned token or unlocked player-faction tokens
-      if (tok.id === assignedTokenId) return true;
+      // Player role: can control any player-faction token or tokens shared with this client
       if (tok.controlledBy === yourClientId || tok.controlledBy === 'all') return true;
-      if (tok.faction === 'player' && !tok.controlledBy) return true;
+      if (tok.faction === 'player') return true;
       return false;
     },
-    [role, gameMode, assignedTokenId, yourClientId]
+    [role, yourClientId]
   );
 
   // Keyboard listeners for Spacebar & Escape
@@ -602,7 +625,7 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
       } else {
         const singleTok =
           mapData.tokens.find((t) => t.id === activeTokenId) ||
-          mapData.tokens.find((t) => t.id === assignedTokenId) ||
+          mapData.tokens.find((t) => t.id === selectedTokenId) ||
           mapData.tokens.find((t) => t.faction === 'player') ||
           mapData.tokens[0];
         if (singleTok) visionTokens = [singleTok];
@@ -1056,7 +1079,21 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
 
         const isSelected = token.id === selectedTokenId;
         const isVisionSource = token.id === activeTokenId;
-        const isAssignedToMe = token.id === assignedTokenId;
+
+        // AoE Spell Target Detection Highlight (Red for enemies, Emerald for allies)
+        const isSpellTarget = affectedTokenIds.includes(token.id);
+        if (isSpellTarget) {
+          const pulse = (Math.sin(now / 120) + 1) / 2;
+          const targetColor = token.faction === 'player' ? '#10B981' : '#EF4444';
+          ctx.strokeStyle = targetColor;
+          ctx.lineWidth = 3.5 + pulse * 2;
+          ctx.shadowColor = targetColor;
+          ctx.shadowBlur = 12 + pulse * 8;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius + 7 + pulse * 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
 
         // Stage 5: Combat Active Turn Aura
         const isCombatTurn =
@@ -1087,8 +1124,8 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
           ctx.beginPath();
           ctx.arc(centerX, centerY, radius + 6, 0, Math.PI * 2);
           ctx.stroke();
-        } else if (isSelected || isAssignedToMe) {
-          ctx.strokeStyle = isAssignedToMe ? '#10B981' : '#38BDF8';
+        } else if (isSelected) {
+          ctx.strokeStyle = '#38BDF8';
           ctx.lineWidth = 2.5;
           ctx.beginPath();
           ctx.arc(centerX, centerY, radius + 5, 0, Math.PI * 2);
@@ -1437,7 +1474,61 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
         ctx.restore();
       }
 
-      // 7.D. Remote Connected Players' Live Cursors
+      // 7.D. Placed AoE Spell Templates (Persistent on map) with raycast wall clipping
+      for (const spell of placedSpellTemplates) {
+        const isSel = spell.id === selectedSpellTemplateId;
+        SpellTemplateManager.drawTemplate(
+          ctx,
+          spell,
+          cs,
+          now,
+          false,
+          isSel,
+          mapData.walls,
+          mapWidth,
+          mapHeight
+        );
+      }
+
+      // 7.E. Active AoE Spell Preview (Follows mouse cursor / caster)
+      if (activeSpellPreview) {
+        // Smoothly interpolate angle for cone/line in requestAnimationFrame loop to eliminate jitter
+        if (activeSpellPreview.shape === 'cone' || activeSpellPreview.shape === 'line') {
+          let diff = activeSpellPreview.angle - smoothSpellAngleRef.current;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          smoothSpellAngleRef.current += diff * 0.32;
+        }
+
+        const previewToDraw = {
+          ...activeSpellPreview,
+          angle:
+            activeSpellPreview.shape === 'cone' || activeSpellPreview.shape === 'line'
+              ? smoothSpellAngleRef.current
+              : activeSpellPreview.angle,
+        };
+
+        SpellTemplateManager.drawTemplate(
+          ctx,
+          previewToDraw,
+          cs,
+          now,
+          true,
+          false,
+          mapData.walls,
+          mapWidth,
+          mapHeight
+        );
+      }
+
+      // 7.E-2. Spell Cast Visual Effects (expanding shockwaves and burst particles)
+      if (activeCastEffects && activeCastEffects.length > 0) {
+        for (const effect of activeCastEffects) {
+          SpellTemplateManager.drawCastEffect(ctx, effect, now);
+        }
+      }
+
+      // 7.F. Remote Connected Players' Live Cursors
       for (const peer of peers) {
         if (peer.clientId === yourClientId || !peer.cursor) continue;
         const { x, y } = peer.cursor;
@@ -1517,7 +1608,6 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
     role,
     gameMode,
     yourClientId,
-    assignedTokenId,
     activeTokenId,
     selectedTokenId,
     selectedWallId,
@@ -1590,6 +1680,19 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
         setChainStart(null);
         return;
       }
+      // Right-Click on a placed spell template deletes it
+      if (placedSpellTemplates.length > 0) {
+        for (let i = placedSpellTemplates.length - 1; i >= 0; i--) {
+          const sp = placedSpellTemplates[i];
+          const rangePx = (sp.radiusFt / 5) * cs;
+          if (Math.hypot(worldPt.x - sp.x, worldPt.y - sp.y) <= Math.max(25, rangePx)) {
+            soundFX.playWallBuild();
+            onDeleteSpellTemplate?.(sp.id);
+            return;
+          }
+        }
+      }
+
       if (gameMode === 'edit' && role === 'GM') {
         const hitWall = mapData.walls.find(
           (w) => distToSegment(worldPt.x, worldPt.y, w.x1, w.y1, w.x2, w.y2) <= 10
@@ -1617,6 +1720,15 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
     if (toolMode === 'measure') {
       rulerRef.current = { start: worldPt, current: worldPt };
       onEmitRuler?.(rulerRef.current);
+      return;
+    }
+
+    // AoE Spell Template Placer Tool: Place and fixate template on map
+    if (toolMode === 'spell') {
+      if (activeSpellPreview) {
+        soundFX.playPing();
+        onPlaceSpellTemplate?.(activeSpellPreview);
+      }
       return;
     }
 
@@ -1712,6 +1824,53 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
             id: src.id,
             offsetX: worldPt.x - src.x,
             offsetY: worldPt.y - src.y,
+          };
+          return;
+        }
+      }
+    }
+
+    // 0.5. Check if user clicked on a Placed Spell Template (Drag body or Rotate handle)
+    if (placedSpellTemplates.length > 0 && toolMode !== 'wall' && toolMode !== 'door' && toolMode !== 'fog_brush') {
+      // Check rotation tip of selected template first
+      const selectedTemplate = placedSpellTemplates.find((t) => t.id === selectedSpellTemplateId);
+      if (
+        selectedTemplate &&
+        (selectedTemplate.shape === 'cone' || selectedTemplate.shape === 'line')
+      ) {
+        const rangePx = (selectedTemplate.radiusFt / 5) * cs;
+        const tipX = selectedTemplate.x + Math.cos(selectedTemplate.angle) * (rangePx + 15);
+        const tipY = selectedTemplate.y + Math.sin(selectedTemplate.angle) * (rangePx + 15);
+        if (Math.hypot(worldPt.x - tipX, worldPt.y - tipY) <= 15) {
+          draggingSpellTemplateRef.current = {
+            id: selectedTemplate.id,
+            isRotating: true,
+            offsetX: 0,
+            offsetY: 0,
+          };
+          return;
+        }
+      }
+
+      // Check clicking template center / body
+      for (let i = placedSpellTemplates.length - 1; i >= 0; i--) {
+        const sp = placedSpellTemplates[i];
+        const rangePx = (sp.radiusFt / 5) * cs;
+        const isInside =
+          sp.shape === 'circle'
+            ? Math.hypot(worldPt.x - sp.x, worldPt.y - sp.y) <= rangePx
+            : Math.hypot(worldPt.x - sp.x, worldPt.y - sp.y) <= Math.max(26, rangePx * 0.7);
+
+        if (isInside) {
+          onSelectSpellTemplate?.(sp.id);
+          onSelectToken(null);
+          onSelectWall(null);
+          onSelectAudioSource?.(null);
+          draggingSpellTemplateRef.current = {
+            id: sp.id,
+            isRotating: false,
+            offsetX: worldPt.x - sp.x,
+            offsetY: worldPt.y - sp.y,
           };
           return;
         }
@@ -1847,6 +2006,23 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
       return;
     }
 
+    // Handle Placed Spell Template Dragging or Rotating
+    if (draggingSpellTemplateRef.current) {
+      const drag = draggingSpellTemplateRef.current;
+      const sp = placedSpellTemplates.find((t) => t.id === drag.id);
+      if (sp) {
+        if (drag.isRotating) {
+          const newAngle = Math.atan2(worldPt.y - sp.y, worldPt.x - sp.x);
+          onMoveSpellTemplate?.({ ...sp, angle: newAngle });
+        } else {
+          const nx = Math.max(20, Math.min(mapWidth - 20, worldPt.x - drag.offsetX));
+          const ny = Math.max(20, Math.min(mapHeight - 20, worldPt.y - drag.offsetY));
+          onMoveSpellTemplate?.({ ...sp, x: Math.round(nx), y: Math.round(ny) });
+        }
+      }
+      return;
+    }
+
     // Handle Audio Source Dragging by GM
     if (draggingAudioSourceRef.current) {
       const drag = draggingAudioSourceRef.current;
@@ -1892,6 +2068,10 @@ export const VTTCanvas: React.FC<VTTCanvasProps> = ({
   };
 
   const handleMouseUp = () => {
+    if (draggingSpellTemplateRef.current) {
+      draggingSpellTemplateRef.current = null;
+      return;
+    }
     if (draggingAudioSourceRef.current) {
       draggingAudioSourceRef.current = null;
       return;
