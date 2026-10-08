@@ -9,6 +9,93 @@ import {
 } from '../types/vtt';
 import { calculateSpatialAudio } from '../engine/audioOcclusion';
 
+/**
+ * High-quality real audio preset library (OGG/MP3/WAV) with fallback URLs.
+ * Uses real recorded audio files from Google Sound Library & Wikimedia Commons (CC0 / CC-BY).
+ */
+export const AMBIENT_PRESET_URLS: Record<
+  Exclude<AmbientSoundPreset, 'custom'>,
+  { primary: string; fallback: string; label: string; description: string }
+> = {
+  campfire: {
+    primary: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Campfire_sound_ambience.ogg',
+    label: 'Костёр / Факел',
+    description: 'Живое потрескивание дров и теплого пламени',
+  },
+  water_stream: {
+    primary: 'https://actions.google.com/sounds/v1/water/small_stream_flowing.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/9/91/Brook_sound.ogg',
+    label: 'Вода / Фонтан / Река',
+    description: 'Журчание ручья, фонтана или подземного потока',
+  },
+  arcane_hum: {
+    primary: 'https://actions.google.com/sounds/v1/science_fiction/sci_fi_vortex.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/0/0c/Deep_humming_noise.wav',
+    label: 'Портал / Магия',
+    description: 'Глубокий низкий гул магического разлома или алтаря',
+  },
+  tavern_crowd: {
+    primary: 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Restaurant_ambience.ogg',
+    label: 'Таверна',
+    description: 'Гул голосов, звон посуды и оживленная атмосфера',
+  },
+  dungeon_drone: {
+    primary: 'https://actions.google.com/sounds/v1/horror/ambient_hum_pitched.ogg',
+    fallback: 'https://actions.google.com/sounds/v1/science_fiction/sci_fi_vortex.ogg',
+    label: 'Гул крипты',
+    description: 'Мрачный низкочастотный эмбиент подземелья',
+  },
+  wind_whisper: {
+    primary: 'https://actions.google.com/sounds/v1/weather/strong_wind.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/f/f3/Wind_in_Swedish_pine_forest_at_25_mps.ogg',
+    label: 'Ветер в проеме',
+    description: 'Завывание сквозняка и холодного ветра',
+  },
+};
+
+export const GLOBAL_MUSIC_URLS: Record<
+  Exclude<GlobalMusicTrack, 'none'>,
+  { primary: string; fallback: string }
+> = {
+  ambient_dungeon: {
+    primary: 'https://actions.google.com/sounds/v1/horror/ambient_hum_pitched.ogg',
+    fallback: 'https://actions.google.com/sounds/v1/science_fiction/sci_fi_vortex.ogg',
+  },
+  ambient_tavern: {
+    primary: 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Restaurant_ambience.ogg',
+  },
+  ambient_forest: {
+    primary: 'https://actions.google.com/sounds/v1/ambiences/crickets_with_distant_traffic.ogg',
+    fallback: 'https://actions.google.com/sounds/v1/weather/strong_wind.ogg',
+  },
+  ambient_rain: {
+    primary: 'https://actions.google.com/sounds/v1/weather/rain_heavy_loud.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Rhumphries_-_rbh-thunder-storm.ogg',
+  },
+  combat_standard: {
+    primary: 'https://actions.google.com/sounds/v1/alarms/spaceship_alarm.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/1/18/Exotic_Battle_%28ISRC_USUAN1100451%29.mp3',
+  },
+  combat_epic: {
+    primary: 'https://actions.google.com/sounds/v1/weather/thunder_crack.ogg',
+    fallback: 'https://upload.wikimedia.org/wikipedia/commons/8/8a/Final_Battle_of_the_Dark_Wizards_%28ISRC_USUAN1500085%29.mp3',
+  },
+};
+
+export const ONE_SHOT_SFX_URLS: Record<OneShotSfxType, string> = {
+  sword_clash: 'https://actions.google.com/sounds/v1/impacts/crash.ogg',
+  fireball: 'https://actions.google.com/sounds/v1/weapons/big_explosion_cut_off.ogg',
+  door_creak: 'https://actions.google.com/sounds/v1/doors/creaking_wooden_door.ogg',
+  monster_roar: 'https://actions.google.com/sounds/v1/horror/monster_alien_grunt_hiss.ogg',
+  bow_shot: 'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg',
+  heal_spell: 'https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg',
+  magic_teleport: 'https://actions.google.com/sounds/v1/science_fiction/alien_beam.ogg',
+  thunderclap: 'https://actions.google.com/sounds/v1/weather/thunder_crack.ogg',
+};
+
 interface ActiveSpatialNode {
   sourceId: string;
   bufferSource?: AudioBufferSourceNode;
@@ -18,8 +105,9 @@ interface ActiveSpatialNode {
   pannerNode: StereoPannerNode;
   gainNode: GainNode;
   isPlaying: boolean;
+  isLoading: boolean;
   currentPreset: AmbientSoundPreset;
-  currentUrl?: string;
+  currentUrl: string;
 }
 
 export class PositionalAudioManager {
@@ -32,14 +120,18 @@ export class PositionalAudioManager {
   // Active spatial sources map
   private spatialNodes: Map<string, ActiveSpatialNode> = new Map();
 
-  // Cached procedural audio buffers for loops
-  private proceduralBuffers: Map<string, AudioBuffer> = new Map();
+  // Decoded AudioBuffer cache by URL for seamless click-free loops
+  private decodedBuffers: Map<string, AudioBuffer> = new Map();
+  private inFlightFetches: Map<string, Promise<AudioBuffer | null>> = new Map();
 
-  // Global music players
-  private activeAmbienceSource: AudioBufferSourceNode | null = null;
-  private activeCombatSource: AudioBufferSourceNode | null = null;
-  private activeCustomMusicEl: HTMLAudioElement | null = null;
-  private customMusicSource: MediaElementAudioSourceNode | null = null;
+  // Global background players
+  private activeAmbienceEl: HTMLAudioElement | null = null;
+  private activeAmbienceSource: MediaElementAudioSourceNode | null = null;
+  private activeAmbienceTrack: string = '';
+
+  private activeCombatEl: HTMLAudioElement | null = null;
+  private activeCombatSource: MediaElementAudioSourceNode | null = null;
+  private activeCombatTrack: string = '';
 
   private currentMusicState: GlobalMusicState = {
     currentTrack: 'none',
@@ -49,24 +141,22 @@ export class PositionalAudioManager {
   };
 
   public isMuted = false;
-  private isUnlocked = false;
 
   constructor() {
-    // Setup lazy unlock on first user interaction
     if (typeof window !== 'undefined') {
       const unlock = () => {
         this.unlockContext();
-        window.removeEventListener('pointerdown', unlock);
-        window.removeEventListener('keydown', unlock);
       };
-      window.addEventListener('pointerdown', unlock);
-      window.addEventListener('keydown', unlock);
+      window.addEventListener('pointerdown', unlock, { passive: true });
+      window.addEventListener('keydown', unlock, { passive: true });
     }
   }
 
   public getContext(): AudioContext | null {
     if (!this.ctx && typeof window !== 'undefined') {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
         this.masterGain = this.ctx.createGain();
@@ -75,7 +165,7 @@ export class PositionalAudioManager {
 
         // Ambience sub-bus
         this.ambienceGain = this.ctx.createGain();
-        this.ambienceGain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        this.ambienceGain.gain.setValueAtTime(0, this.ctx.currentTime);
         this.ambienceGain.connect(this.masterGain);
 
         // Combat sub-bus
@@ -85,7 +175,7 @@ export class PositionalAudioManager {
 
         // SFX sub-bus
         this.sfxGain = this.ctx.createGain();
-        this.sfxGain.gain.setValueAtTime(0.75, this.ctx.currentTime);
+        this.sfxGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
         this.sfxGain.connect(this.masterGain);
       }
     }
@@ -94,12 +184,26 @@ export class PositionalAudioManager {
 
   public async unlockContext(): Promise<void> {
     const ctx = this.getContext();
-    if (ctx && ctx.state === 'suspended') {
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
       try {
         await ctx.resume();
-        this.isUnlocked = true;
       } catch {
         // Ignored
+      }
+    }
+    // Resume any paused HTMLAudioElements that should be playing
+    for (const node of this.spatialNodes.values()) {
+      if (node.isPlaying && node.audioElement && node.audioElement.paused) {
+        node.audioElement.play().catch(() => {});
+      }
+    }
+    if (this.currentMusicState.isPlaying) {
+      if (this.activeAmbienceEl && this.activeAmbienceEl.paused) {
+        this.activeAmbienceEl.play().catch(() => {});
+      }
+      if (this.activeCombatEl && this.activeCombatEl.paused) {
+        this.activeCombatEl.play().catch(() => {});
       }
     }
   }
@@ -109,204 +213,185 @@ export class PositionalAudioManager {
     const ctx = this.getContext();
     if (!ctx || !this.masterGain) return;
     const now = ctx.currentTime;
-    this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.85, now, 0.05);
+    this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.85, now, 0.08);
   }
 
   public setMasterVolume(vol: number): void {
     const ctx = this.getContext();
     if (!ctx || !this.masterGain) return;
     const clamped = Math.max(0, Math.min(1, vol));
-    this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : clamped, ctx.currentTime, 0.05);
+    this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : clamped, ctx.currentTime, 0.08);
   }
 
-  // ---------------------------------------------------------------------------
-  // PROCEDURAL AUDIO SYNTHESIS FOR SEAMLESS 100% OFFLINE LOOPS
-  // ---------------------------------------------------------------------------
+  /**
+   * Resolves the effective audio URL for a positional audio source.
+   * Priority: custom URL if provided -> preset primary URL.
+   */
+  public resolveSourceUrl(source: PositionalAudioSource): { primary: string; fallback?: string } {
+    const customTrimmed = source.url?.trim();
+    if (customTrimmed && (source.preset === 'custom' || customTrimmed.length > 0)) {
+      return {
+        primary: customTrimmed,
+        fallback:
+          source.preset !== 'custom'
+            ? AMBIENT_PRESET_URLS[source.preset]?.primary
+            : AMBIENT_PRESET_URLS.campfire.primary,
+      };
+    }
 
-  private getProceduralBuffer(preset: AmbientSoundPreset | GlobalMusicTrack): AudioBuffer | null {
+    const presetKey = source.preset === 'custom' ? 'campfire' : source.preset;
+    const presetConfig = AMBIENT_PRESET_URLS[presetKey] || AMBIENT_PRESET_URLS.campfire;
+    return {
+      primary: presetConfig.primary,
+      fallback: presetConfig.fallback,
+    };
+  }
+
+  /**
+   * Loads and decodes a real audio file into an AudioBuffer via fetch() for gapless looping.
+   */
+  private async fetchAndDecodeAudioBuffer(
+    url: string,
+    fallbackUrl?: string
+  ): Promise<AudioBuffer | null> {
     const ctx = this.getContext();
     if (!ctx) return null;
 
-    if (this.proceduralBuffers.has(preset)) {
-      return this.proceduralBuffers.get(preset)!;
+    if (this.decodedBuffers.has(url)) {
+      return this.decodedBuffers.get(url)!;
     }
 
-    const duration = 4.0; // 4 seconds loop
-    const sampleRate = ctx.sampleRate;
-    const length = Math.floor(sampleRate * duration);
-    const buffer = ctx.createBuffer(2, length, sampleRate);
-    const left = buffer.getChannelData(0);
-    const right = buffer.getChannelData(1);
-
-    switch (preset) {
-      case 'campfire': {
-        // Crackling fire + warm low-frequency rumble
-        let lastLeft = 0;
-        let lastRight = 0;
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          // Brownian low rumble
-          const whiteL = Math.random() * 2 - 1;
-          const whiteR = Math.random() * 2 - 1;
-          lastLeft = (lastLeft + 0.02 * whiteL) / 1.02;
-          lastRight = (lastRight + 0.02 * whiteR) / 1.02;
-
-          // Random crackle sparks
-          let spark = 0;
-          if (Math.random() < 0.0035) {
-            spark = (Math.random() * 2 - 1) * 0.9;
-          }
-
-          const baseHum = Math.sin(2 * Math.PI * 65 * t) * 0.05;
-          left[i] = lastLeft * 0.6 + spark + baseHum;
-          right[i] = lastRight * 0.6 + spark * 0.8 + baseHum;
-        }
-        break;
-      }
-
-      case 'water_stream': {
-        // Rushing water / fountain (band-filtered white noise)
-        let fL = 0;
-        let fR = 0;
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const lfo = 0.8 + 0.2 * Math.sin(2 * Math.PI * 0.5 * t);
-          const noiseL = Math.random() * 2 - 1;
-          const noiseR = Math.random() * 2 - 1;
-          fL = fL * 0.92 + noiseL * 0.08;
-          fR = fR * 0.92 + noiseR * 0.08;
-          left[i] = fL * lfo * 0.7;
-          right[i] = fR * lfo * 0.7;
-        }
-        break;
-      }
-
-      case 'dungeon_drone':
-      case 'ambient_dungeon': {
-        // Ominous sub-drone with resonant detuned harmonics
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const f0 = 55.0; // A1
-          const drone1 = Math.sin(2 * Math.PI * f0 * t);
-          const drone2 = Math.sin(2 * Math.PI * (f0 * 1.006) * t);
-          const sub = Math.sin(2 * Math.PI * (f0 * 0.5) * t) * 0.5;
-          const fifth = Math.sin(2 * Math.PI * (f0 * 1.5) * t + 0.3) * 0.2;
-          const lfo = 0.7 + 0.3 * Math.sin(2 * Math.PI * 0.15 * t);
-          left[i] = (drone1 * 0.4 + sub + fifth) * lfo * 0.35;
-          right[i] = (drone2 * 0.4 + sub + fifth) * lfo * 0.35;
-        }
-        break;
-      }
-
-      case 'tavern_crowd':
-      case 'ambient_tavern': {
-        // Warm tavern background murmur + occasional rhythmic clink
-        let murmL = 0;
-        let murmR = 0;
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const nL = Math.random() * 2 - 1;
-          const nR = Math.random() * 2 - 1;
-          murmL = murmL * 0.95 + nL * 0.05;
-          murmR = murmR * 0.95 + nR * 0.05;
-
-          const lfoVoice = 0.5 + 0.5 * Math.sin(2 * Math.PI * 1.2 * t);
-          // Periodic clinking glass/mug
-          let clink = 0;
-          if (i % Math.floor(sampleRate * 1.3) < 40) {
-            const clinkT = (i % Math.floor(sampleRate * 1.3)) / sampleRate;
-            clink = Math.sin(2 * Math.PI * 2200 * clinkT) * Math.exp(-clinkT * 80) * 0.4;
-          }
-
-          left[i] = (murmL * lfoVoice * 0.5 + clink) * 0.6;
-          right[i] = (murmR * lfoVoice * 0.5 + clink * 0.7) * 0.6;
-        }
-        break;
-      }
-
-      case 'wind_whisper':
-      case 'ambient_forest': {
-        // Whistling wind gusts & nocturnal whispering ambiance
-        let windL = 0;
-        let windR = 0;
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const nL = Math.random() * 2 - 1;
-          const nR = Math.random() * 2 - 1;
-          const lfoGust = 0.4 + 0.6 * Math.sin(2 * Math.PI * 0.25 * t);
-          windL = windL * 0.96 + nL * 0.04;
-          windR = windR * 0.96 + nR * 0.04;
-          left[i] = windL * lfoGust * 0.7;
-          right[i] = windR * lfoGust * 0.7;
-        }
-        break;
-      }
-
-      case 'arcane_hum': {
-        // Magical shimmering resonance (phased sine chords)
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const chime1 = Math.sin(2 * Math.PI * 216 * t);
-          const chime2 = Math.sin(2 * Math.PI * 324 * t);
-          const chime3 = Math.sin(2 * Math.PI * 432 * t);
-          const shimmer = 0.5 + 0.5 * Math.sin(2 * Math.PI * 3.5 * t);
-          left[i] = (chime1 * 0.3 + chime2 * 0.2 + chime3 * 0.15) * shimmer * 0.45;
-          right[i] = (chime1 * 0.2 + chime2 * 0.3 + chime3 * 0.15) * (1 - shimmer * 0.5) * 0.45;
-        }
-        break;
-      }
-
-      case 'ambient_rain': {
-        // Steady rain patter
-        let rainL = 0;
-        let rainR = 0;
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const nL = Math.random() * 2 - 1;
-          const nR = Math.random() * 2 - 1;
-          rainL = rainL * 0.88 + nL * 0.12;
-          rainR = rainR * 0.88 + nR * 0.12;
-          const thunderT = (t % 3.0);
-          const thunder = Math.sin(2 * Math.PI * 45 * thunderT) * Math.exp(-thunderT * 2) * 0.15;
-          left[i] = rainL * 0.5 + thunder;
-          right[i] = rainR * 0.5 + thunder;
-        }
-        break;
-      }
-
-      case 'combat_standard':
-      case 'combat_epic': {
-        // Driving rhythmic battle drums & pulse
-        const bpm = preset === 'combat_epic' ? 140 : 120;
-        const beatInterval = 60 / bpm;
-        for (let i = 0; i < length; i++) {
-          const t = i / sampleRate;
-          const beatTime = t % beatInterval;
-          // Heavy kick drum transient
-          const drumPitch = 120 * Math.exp(-beatTime * 35);
-          const drum = Math.sin(2 * Math.PI * drumPitch * beatTime) * Math.exp(-beatTime * 12);
-          // Rhythmic metallic snare/shaker
-          const isSnare = (Math.floor(t / beatInterval) % 2) === 1;
-          const snare = isSnare ? (Math.random() * 2 - 1) * Math.exp(-beatTime * 20) * 0.4 : 0;
-          // Sub-bass tension drone
-          const sub = Math.sin(2 * Math.PI * 48 * t) * 0.2;
-          left[i] = (drum * 0.6 + snare + sub) * 0.55;
-          right[i] = (drum * 0.6 + snare * 0.8 + sub) * 0.55;
-        }
-        break;
-      }
-
-      default:
-        // Soft generic ambient noise fallback
-        for (let i = 0; i < length; i++) {
-          left[i] = (Math.random() * 2 - 1) * 0.05;
-          right[i] = (Math.random() * 2 - 1) * 0.05;
-        }
-        break;
+    if (this.inFlightFetches.has(url)) {
+      return this.inFlightFetches.get(url)!;
     }
 
-    this.proceduralBuffers.set(preset, buffer);
-    return buffer;
+    const promise = (async (): Promise<AudioBuffer | null> => {
+      const tryLoad = async (targetUrl: string): Promise<AudioBuffer | null> => {
+        try {
+          const response = await fetch(targetUrl, { mode: 'cors' });
+          if (!response.ok) return null;
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          this.decodedBuffers.set(targetUrl, audioBuffer);
+          return audioBuffer;
+        } catch {
+          return null;
+        }
+      };
+
+      let buffer = await tryLoad(url);
+      if (!buffer && fallbackUrl && fallbackUrl !== url) {
+        buffer = await tryLoad(fallbackUrl);
+        if (buffer) {
+          this.decodedBuffers.set(url, buffer);
+        }
+      }
+      this.inFlightFetches.delete(url);
+      return buffer;
+    })();
+
+    this.inFlightFetches.set(url, promise);
+    return promise;
+  }
+
+  /**
+   * Attaches real audio playback to a spatial node chain.
+   * Uses decoded AudioBufferSourceNode (loop = true) first for 100% seamless loop,
+   * or falls back to HTMLAudioElement + createMediaElementSource if CORS blocks raw fetch.
+   */
+  private async attachAudioStreamToSpatialNode(
+    node: ActiveSpatialNode,
+    primaryUrl: string,
+    fallbackUrl?: string
+  ): Promise<void> {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    node.isLoading = true;
+
+    // 1. Try fetch + decodeAudioData for gapless AudioBuffer looping
+    const buffer = await this.fetchAndDecodeAudioBuffer(primaryUrl, fallbackUrl);
+
+    // Check if node was removed or replaced while loading
+    if (this.spatialNodes.get(node.sourceId) !== node) {
+      return;
+    }
+
+    if (buffer) {
+      try {
+        const bufSource = ctx.createBufferSource();
+        bufSource.buffer = buffer;
+        bufSource.loop = true;
+        bufSource.connect(node.filterNode);
+        bufSource.start(0);
+        node.bufferSource = bufSource;
+        node.isLoading = false;
+        return;
+      } catch {
+        // Fall through to HTMLAudioElement
+      }
+    }
+
+    // 2. Fallback to HTMLAudioElement + createMediaElementSource
+    try {
+      const audioEl = new Audio();
+      audioEl.crossOrigin = 'anonymous';
+      audioEl.src = primaryUrl;
+      audioEl.loop = true;
+      audioEl.preload = 'auto';
+
+      if (fallbackUrl) {
+        audioEl.onerror = () => {
+          if (audioEl.src !== fallbackUrl) {
+            audioEl.src = fallbackUrl;
+            if (node.isPlaying) {
+              audioEl.play().catch(() => {});
+            }
+          }
+        };
+      }
+
+      const elSource = ctx.createMediaElementSource(audioEl);
+      elSource.connect(node.filterNode);
+      node.audioElement = audioEl;
+      node.elementSource = elSource;
+      node.isLoading = false;
+
+      if (node.isPlaying) {
+        audioEl.play().catch(() => {});
+      }
+    } catch {
+      node.isLoading = false;
+    }
+  }
+
+  private destroySpatialNode(node: ActiveSpatialNode): void {
+    try {
+      if (node.bufferSource) {
+        node.bufferSource.stop();
+        node.bufferSource.disconnect();
+      }
+    } catch {
+      // Ignored
+    }
+    try {
+      if (node.audioElement) {
+        node.audioElement.pause();
+        node.audioElement.src = '';
+      }
+      if (node.elementSource) {
+        node.elementSource.disconnect();
+      }
+    } catch {
+      // Ignored
+    }
+    try {
+      node.filterNode.disconnect();
+      node.pannerNode.disconnect();
+      node.gainNode.disconnect();
+    } catch {
+      // Ignored
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -315,7 +400,11 @@ export class PositionalAudioManager {
 
   /**
    * Updates or creates Web Audio nodes for spatial map audio sources:
-   * [Source Node] -> [LowPass Filter] -> [Stereo Panner] -> [Gain Node] -> [Master Gain]
+   * [AudioBufferSourceNode / MediaElementAudioSourceNode]
+   *   -> [BiquadFilterNode (LowPass Wall Occlusion)]
+   *   -> [StereoPannerNode (2D Left/Right Panning)]
+   *   -> [GainNode (Distance Attenuation + Smooth Ramp)]
+   *   -> [MasterGain]
    */
   public updateSpatialSources(
     listener: Point,
@@ -327,65 +416,58 @@ export class PositionalAudioManager {
 
     const activeSourceIds = new Set(sources.map((s) => s.id));
 
-    // 1. Clean up removed sources
+    // 1. Clean up removed sources with gentle fade-out
     for (const [id, node] of this.spatialNodes.entries()) {
       if (!activeSourceIds.has(id)) {
-        try {
-          if (node.bufferSource) {
-            node.bufferSource.stop();
-            node.bufferSource.disconnect();
-          }
-          if (node.audioElement) {
-            node.audioElement.pause();
-          }
-          node.gainNode.disconnect();
-          node.pannerNode.disconnect();
-          node.filterNode.disconnect();
-        } catch {
-          // Ignored
-        }
+        this.destroySpatialNode(node);
         this.spatialNodes.delete(id);
       }
     }
 
     // 2. Update or create active sources
     for (const source of sources) {
-      if (!source.isPlaying) {
-        // Mute or pause if isPlaying is false
-        const existing = this.spatialNodes.get(source.id);
-        if (existing) {
-          existing.gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
-        }
-        continue;
-      }
-
+      const resolved = this.resolveSourceUrl(source);
       let node = this.spatialNodes.get(source.id);
 
-      // Recreate node if preset or custom url changed
-      if (node && (node.currentPreset !== source.preset || node.currentUrl !== source.url)) {
-        try {
-          if (node.bufferSource) node.bufferSource.stop();
-          if (node.audioElement) node.audioElement.pause();
-          node.gainNode.disconnect();
-        } catch {
-          // Ignored
-        }
+      // Recreate node if preset or custom URL changed
+      if (
+        node &&
+        (node.currentPreset !== source.preset || node.currentUrl !== resolved.primary)
+      ) {
+        this.destroySpatialNode(node);
         this.spatialNodes.delete(source.id);
         node = undefined;
       }
 
+      if (!source.isPlaying) {
+        if (node) {
+          node.isPlaying = false;
+          // Smoothly ramp gain to 0 to avoid clicks when pausing
+          node.gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.08);
+          if (node.audioElement && !node.audioElement.paused) {
+            setTimeout(() => {
+              if (node && !node.isPlaying && node.audioElement) {
+                node.audioElement.pause();
+              }
+            }, 220);
+          }
+        }
+        continue;
+      }
+
       if (!node) {
-        // Setup new spatial node chain
+        // Create Web Audio processing chain starting at gain = 0 (soft start without click!)
         const filterNode = ctx.createBiquadFilter();
         filterNode.type = 'lowpass';
         filterNode.frequency.setValueAtTime(22000, ctx.currentTime);
-        filterNode.Q.setValueAtTime(1.0, ctx.currentTime);
+        filterNode.Q.setValueAtTime(0.707, ctx.currentTime);
 
         const pannerNode = ctx.createStereoPanner();
         pannerNode.pan.setValueAtTime(0, ctx.currentTime);
 
         const gainNode = ctx.createGain();
-        gainNode.gain.setValueAtTime(0, ctx.currentTime);
+        // Start at 0 gain so audio fades in smoothly without any pop/click
+        gainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
 
         // Connect chain: Filter -> Panner -> Gain -> MasterGain
         filterNode.connect(pannerNode);
@@ -398,69 +480,40 @@ export class PositionalAudioManager {
           pannerNode,
           gainNode,
           isPlaying: true,
+          isLoading: true,
           currentPreset: source.preset,
-          currentUrl: source.url,
+          currentUrl: resolved.primary,
         };
 
-        if (source.preset === 'custom' && source.url) {
-          // Use HTMLAudioElement for custom audio URL
-          try {
-            const audioEl = new Audio(source.url);
-            audioEl.crossOrigin = 'anonymous';
-            audioEl.loop = true;
-            const elSource = ctx.createMediaElementSource(audioEl);
-            elSource.connect(filterNode);
-            audioEl.play().catch(() => {});
-            node.audioElement = audioEl;
-            node.elementSource = elSource;
-          } catch {
-            // Fallback to procedural
-            const buf = this.getProceduralBuffer('campfire');
-            if (buf) {
-              const bufSource = ctx.createBufferSource();
-              bufSource.buffer = buf;
-              bufSource.loop = true;
-              bufSource.connect(filterNode);
-              bufSource.start();
-              node.bufferSource = bufSource;
-            }
-          }
-        } else {
-          // Use procedural buffer source
-          const buf = this.getProceduralBuffer(source.preset);
-          if (buf) {
-            const bufSource = ctx.createBufferSource();
-            bufSource.buffer = buf;
-            bufSource.loop = true;
-            bufSource.connect(filterNode);
-            bufSource.start();
-            node.bufferSource = bufSource;
-          }
-        }
-
         this.spatialNodes.set(source.id, node);
+        void this.attachAudioStreamToSpatialNode(node, resolved.primary, resolved.fallback);
+      } else if (!node.isPlaying) {
+        node.isPlaying = true;
+        if (node.audioElement && node.audioElement.paused) {
+          node.audioElement.play().catch(() => {});
+        }
       }
 
       // 3. Real-time Acoustic Raycast Calculation (Stereo Pan, Distance Attenuation, Wall Occlusion)
       const acoustics = calculateSpatialAudio(listener, source, walls);
 
       const now = ctx.currentTime;
-      const smoothTime = 0.08; // 80ms gentle linear/exponential ramp to prevent clicks
+      const smoothTime = 0.12; // 120ms gentle time constant prevents any clicks or zipper noise
 
-      // Smooth cutoff frequency: 22000Hz (open) -> 1000Hz (1 wall) -> 450Hz (2 walls) -> 280Hz (3+ walls)
+      // LowPass filter cutoff based on walls between player token and audio source
       node.filterNode.frequency.setTargetAtTime(acoustics.cutoffFrequency, now, smoothTime);
 
-      // Smooth stereo panning: -1 (left) to +1 (right)
+      // Stereo panning (-1 left to +1 right)
       node.pannerNode.pan.setTargetAtTime(acoustics.pan, now, smoothTime);
 
-      // Smooth gain: distance attenuation * wall occlusion factor * source volume
+      // Distance attenuation * wall occlusion factor * source volume
       const targetGain = this.isMuted ? 0 : acoustics.finalGain;
       node.gainNode.gain.setTargetAtTime(targetGain, now, smoothTime);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // GLOBAL BACKGROUND AMBIENCE & COMBAT MUSIC WITH SMOOTH CROSSFADE
+  // GLOBAL BACKGROUND AMBIENCE & COMBAT MUSIC (REAL AUDIO STREAMS + CROSSFADE)
   // ---------------------------------------------------------------------------
 
   public updateGlobalMusic(state: GlobalMusicState): void {
@@ -469,7 +522,7 @@ export class PositionalAudioManager {
 
     this.currentMusicState = state;
     const now = ctx.currentTime;
-    const crossfadeTime = 1.2; // 1.2s crossfade between ambient & combat
+    const crossfadeTime = 0.8;
 
     if (!state.isPlaying || state.currentTrack === 'none') {
       this.ambienceGain.gain.setTargetAtTime(0, now, 0.3);
@@ -477,261 +530,122 @@ export class PositionalAudioManager {
       return;
     }
 
+    const trackConfig = GLOBAL_MUSIC_URLS[state.currentTrack];
+    const targetUrl = state.customUrl?.trim() || trackConfig?.primary;
+    const fallbackUrl = trackConfig?.fallback;
+    if (!targetUrl) return;
+
     const isCombat = state.isCombatMode || state.currentTrack.startsWith('combat_');
     const targetVolume = this.isMuted ? 0 : Math.max(0, Math.min(1, state.volume));
 
     if (isCombat) {
-      // Fade out ambience, fade in combat music
       this.ambienceGain.gain.setTargetAtTime(0, now, crossfadeTime);
       this.combatGain.gain.setTargetAtTime(targetVolume, now, crossfadeTime);
 
-      if (!this.activeCombatSource) {
-        const buf = this.getProceduralBuffer(state.currentTrack);
-        if (buf) {
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
-          src.loop = true;
-          src.connect(this.combatGain);
-          src.start();
-          this.activeCombatSource = src;
+      if (this.activeCombatTrack !== targetUrl || !this.activeCombatEl) {
+        if (this.activeCombatEl) {
+          this.activeCombatEl.pause();
+          this.activeCombatSource?.disconnect();
         }
+        try {
+          const audioEl = new Audio();
+          audioEl.crossOrigin = 'anonymous';
+          audioEl.src = targetUrl;
+          audioEl.loop = true;
+          if (fallbackUrl) {
+            audioEl.onerror = () => {
+              if (audioEl.src !== fallbackUrl) {
+                audioEl.src = fallbackUrl;
+                audioEl.play().catch(() => {});
+              }
+            };
+          }
+          const srcNode = ctx.createMediaElementSource(audioEl);
+          srcNode.connect(this.combatGain);
+          audioEl.play().catch(() => {});
+          this.activeCombatEl = audioEl;
+          this.activeCombatSource = srcNode;
+          this.activeCombatTrack = targetUrl;
+        } catch {
+          // Ignored
+        }
+      } else if (this.activeCombatEl.paused) {
+        this.activeCombatEl.play().catch(() => {});
       }
     } else {
-      // Fade out combat, fade in ambient music
       this.combatGain.gain.setTargetAtTime(0, now, crossfadeTime);
       this.ambienceGain.gain.setTargetAtTime(targetVolume, now, crossfadeTime);
 
-      if (!this.activeAmbienceSource) {
-        const buf = this.getProceduralBuffer(state.currentTrack);
-        if (buf) {
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
-          src.loop = true;
-          src.connect(this.ambienceGain);
-          src.start();
-          this.activeAmbienceSource = src;
+      if (this.activeAmbienceTrack !== targetUrl || !this.activeAmbienceEl) {
+        if (this.activeAmbienceEl) {
+          this.activeAmbienceEl.pause();
+          this.activeAmbienceSource?.disconnect();
         }
+        try {
+          const audioEl = new Audio();
+          audioEl.crossOrigin = 'anonymous';
+          audioEl.src = targetUrl;
+          audioEl.loop = true;
+          if (fallbackUrl) {
+            audioEl.onerror = () => {
+              if (audioEl.src !== fallbackUrl) {
+                audioEl.src = fallbackUrl;
+                audioEl.play().catch(() => {});
+              }
+            };
+          }
+          const srcNode = ctx.createMediaElementSource(audioEl);
+          srcNode.connect(this.ambienceGain);
+          audioEl.play().catch(() => {});
+          this.activeAmbienceEl = audioEl;
+          this.activeAmbienceSource = srcNode;
+          this.activeAmbienceTrack = targetUrl;
+        } catch {
+          // Ignored
+        }
+      } else if (this.activeAmbienceEl.paused) {
+        this.activeAmbienceEl.play().catch(() => {});
       }
     }
   }
 
   // ---------------------------------------------------------------------------
-  // GM ONE-SHOT SFX SOUNDBOARD (PROCEDURAL WEB AUDIO SYNTHESIS)
+  // GM ONE-SHOT SFX SOUNDBOARD (REAL AUDIO FILES)
   // ---------------------------------------------------------------------------
 
-  public playOneShotSfx(type: OneShotSfxType, volume = 1.0): void {
+  public async playOneShotSfx(type: OneShotSfxType, volume = 1.0): Promise<void> {
     const ctx = this.getContext();
     if (!ctx || !this.sfxGain || this.isMuted) return;
 
-    const now = ctx.currentTime;
-    const sfxOut = ctx.createGain();
-    sfxOut.gain.setValueAtTime(Math.max(0, Math.min(1, volume)), now);
-    sfxOut.connect(this.sfxGain);
+    const url = ONE_SHOT_SFX_URLS[type];
+    if (!url) return;
 
-    switch (type) {
-      case 'sword_clash': {
-        // Metallic ringing clash + noise scraping transient
-        const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(2400, now);
-        osc.frequency.exponentialRampToValueAtTime(800, now + 0.35);
+    const clampedVol = Math.max(0, Math.min(1, volume));
+    const buffer = await this.fetchAndDecodeAudioBuffer(url);
 
-        oscGain.gain.setValueAtTime(0.7, now);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+    if (buffer) {
+      const now = ctx.currentTime;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
 
-        osc.connect(oscGain);
-        oscGain.connect(sfxOut);
-        osc.start(now);
-        osc.stop(now + 0.4);
+      const sfxOut = ctx.createGain();
+      // Soft 15ms envelope on start to prevent click
+      sfxOut.gain.setValueAtTime(0.001, now);
+      sfxOut.gain.linearRampToValueAtTime(clampedVol, now + 0.015);
 
-        // Clang impact
-        const clang = ctx.createOscillator();
-        clang.type = 'sine';
-        clang.frequency.setValueAtTime(3200, now);
-        clang.frequency.exponentialRampToValueAtTime(1400, now + 0.15);
-        const clangGain = ctx.createGain();
-        clangGain.gain.setValueAtTime(0.5, now);
-        clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-        clang.connect(clangGain);
-        clangGain.connect(sfxOut);
-        clang.start(now);
-        clang.stop(now + 0.22);
-        break;
-      }
+      source.connect(sfxOut);
+      sfxOut.connect(this.sfxGain);
+      source.start(now);
+      return;
+    }
 
-      case 'fireball': {
-        // Roaring white-noise whoosh + low-frequency explosive blast
-        const len = Math.floor(ctx.sampleRate * 0.85);
-        const noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
-        const data = noiseBuf.getChannelData(0);
-        for (let i = 0; i < len; i++) {
-          data[i] = Math.random() * 2 - 1;
-        }
-        const noise = ctx.createBufferSource();
-        noise.buffer = noiseBuf;
-
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(1800, now);
-        filter.frequency.exponentialRampToValueAtTime(120, now + 0.8);
-
-        const boomGain = ctx.createGain();
-        boomGain.gain.setValueAtTime(0.9, now);
-        boomGain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
-
-        noise.connect(filter);
-        filter.connect(boomGain);
-        boomGain.connect(sfxOut);
-        noise.start(now);
-        noise.stop(now + 0.85);
-
-        // Low sub-bass thud
-        const sub = ctx.createOscillator();
-        sub.type = 'sine';
-        sub.frequency.setValueAtTime(110, now);
-        sub.frequency.exponentialRampToValueAtTime(35, now + 0.6);
-        const subG = ctx.createGain();
-        subG.gain.setValueAtTime(0.8, now);
-        subG.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
-        sub.connect(subG);
-        subG.connect(sfxOut);
-        sub.start(now);
-        sub.stop(now + 0.65);
-        break;
-      }
-
-      case 'door_creak': {
-        // Slow creaking wooden friction pitch sweep
-        const osc = ctx.createOscillator();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.linearRampToValueAtTime(260, now + 0.25);
-        osc.frequency.linearRampToValueAtTime(190, now + 0.55);
-
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.setValueAtTime(450, now);
-        filter.Q.setValueAtTime(4.0, now);
-
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0.4, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-
-        osc.connect(filter);
-        filter.connect(g);
-        g.connect(sfxOut);
-        osc.start(now);
-        osc.stop(now + 0.6);
-        break;
-      }
-
-      case 'monster_roar': {
-        // Guttural pitch-dropped roar
-        const roar = ctx.createOscillator();
-        roar.type = 'sawtooth';
-        roar.frequency.setValueAtTime(140, now);
-        roar.frequency.exponentialRampToValueAtTime(50, now + 0.7);
-
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(800, now);
-        filter.frequency.exponentialRampToValueAtTime(180, now + 0.7);
-
-        const roarG = ctx.createGain();
-        roarG.gain.setValueAtTime(0.8, now);
-        roarG.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
-
-        roar.connect(filter);
-        filter.connect(roarG);
-        roarG.connect(sfxOut);
-        roar.start(now);
-        roar.stop(now + 0.75);
-        break;
-      }
-
-      case 'bow_shot': {
-        // Bowstring twang + arrow release whoosh
-        const osc = ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.exponentialRampToValueAtTime(90, now + 0.18);
-        const oscG = ctx.createGain();
-        oscG.gain.setValueAtTime(0.6, now);
-        oscG.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-        osc.connect(oscG);
-        oscG.connect(sfxOut);
-        osc.start(now);
-        osc.stop(now + 0.2);
-        break;
-      }
-
-      case 'heal_spell': {
-        // Harmonic ascending healing chime
-        const freqs = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
-        freqs.forEach((f, idx) => {
-          const osc = ctx.createOscillator();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(f, now + idx * 0.06);
-          const g = ctx.createGain();
-          g.gain.setValueAtTime(0, now + idx * 0.06);
-          g.gain.linearRampToValueAtTime(0.4, now + idx * 0.06 + 0.04);
-          g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.45);
-          osc.connect(g);
-          g.connect(sfxOut);
-          osc.start(now + idx * 0.06);
-          osc.stop(now + idx * 0.06 + 0.48);
-        });
-        break;
-      }
-
-      case 'magic_teleport': {
-        // Sweeping dimensional whoosh
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(150, now);
-        osc.frequency.exponentialRampToValueAtTime(950, now + 0.25);
-        osc.frequency.exponentialRampToValueAtTime(80, now + 0.55);
-
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0.5, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-
-        osc.connect(g);
-        g.connect(sfxOut);
-        osc.start(now);
-        osc.stop(now + 0.6);
-        break;
-      }
-
-      case 'thunderclap': {
-        // Electric crack followed by decaying thunder rumble
-        const crack = ctx.createOscillator();
-        crack.type = 'square';
-        crack.frequency.setValueAtTime(800, now);
-        crack.frequency.exponentialRampToValueAtTime(120, now + 0.08);
-        const crackG = ctx.createGain();
-        crackG.gain.setValueAtTime(0.8, now);
-        crackG.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-        crack.connect(crackG);
-        crackG.connect(sfxOut);
-        crack.start(now);
-        crack.stop(now + 0.12);
-
-        // Low rolling rumble
-        const sub = ctx.createOscillator();
-        sub.type = 'triangle';
-        sub.frequency.setValueAtTime(70, now + 0.05);
-        sub.frequency.exponentialRampToValueAtTime(30, now + 0.9);
-        const subG = ctx.createGain();
-        subG.gain.setValueAtTime(0.7, now + 0.05);
-        subG.gain.exponentialRampToValueAtTime(0.001, now + 0.95);
-        sub.connect(subG);
-        subG.connect(sfxOut);
-        sub.start(now + 0.05);
-        sub.stop(now + 1.0);
-        break;
-      }
+    // Fallback to HTMLAudioElement if decode fails
+    try {
+      const audio = new Audio(url);
+      audio.volume = clampedVol;
+      audio.play().catch(() => {});
+    } catch {
+      // Ignored
     }
   }
 }

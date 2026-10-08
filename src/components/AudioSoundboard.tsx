@@ -7,10 +7,11 @@ import {
   PositionalAudioSource,
   UserRole,
 } from '../types/vtt';
-import { spatialAudio } from '../utils/audioManager';
+import { AMBIENT_PRESET_URLS, spatialAudio } from '../utils/audioManager';
 import {
   Compass,
   Flame,
+  Link2,
   Music,
   Plus,
   Radio,
@@ -45,28 +46,76 @@ const GLOBAL_TRACKS: { id: GlobalMusicTrack; label: string; icon: string; catego
   { id: 'ambient_tavern', label: 'Шумная Таверна', icon: '🍺', category: 'ambient' },
   { id: 'ambient_forest', label: 'Ночной Лес', icon: '🌲', category: 'ambient' },
   { id: 'ambient_rain', label: 'Гроза и Ливень', icon: '⛈️', category: 'ambient' },
-  { id: 'combat_standard', label: 'Бой: Звон Стали', icon: '⚔️', category: 'combat' },
-  { id: 'combat_epic', label: 'Бой: Битва с Боссом', icon: '🐉', category: 'combat' },
+  { id: 'combat_standard', label: 'Бой: Тревога Стали', icon: '⚔️', category: 'combat' },
+  { id: 'combat_epic', label: 'Бой: Грозовая Битва с Боссом', icon: '🐉', category: 'combat' },
 ];
 
 const ONE_SHOT_SFX: { id: OneShotSfxType; label: string; icon: string; desc: string }[] = [
-  { id: 'sword_clash', label: 'Удар меча', icon: '⚔️', desc: 'Звонкий металлический клэш' },
-  { id: 'fireball', label: 'Огненный шар', icon: '🔥', desc: 'Взрыв и рев пламени' },
-  { id: 'door_creak', label: 'Скрип двери', icon: '🚪', desc: 'Медленный скрип петель' },
-  { id: 'monster_roar', label: 'Рык чудовища', icon: '👹', desc: 'Утробный утробный рев' },
-  { id: 'bow_shot', label: 'Выстрел из лука', icon: '🏹', desc: 'Тетива и свист стрелы' },
-  { id: 'heal_spell', label: 'Исцеление', icon: '✨', desc: 'Восходящий перезвон' },
-  { id: 'magic_teleport', label: 'Телепорт', icon: '🌀', desc: 'Магическое искривление' },
-  { id: 'thunderclap', label: 'Удар грома', icon: '⚡', desc: 'Раскатистый грозовой удар' },
+  { id: 'sword_clash', label: 'Удар меча', icon: '⚔️', desc: 'Реальный металлический удар' },
+  { id: 'fireball', label: 'Огненный шар', icon: '🔥', desc: 'Взрыв и рокот пламени' },
+  { id: 'door_creak', label: 'Скрип двери', icon: '🚪', desc: 'Скрип деревянной двери' },
+  { id: 'monster_roar', label: 'Рык чудовища', icon: '👹', desc: 'Звериный рык монстра' },
+  { id: 'bow_shot', label: 'Выстрел из лука', icon: '🏹', desc: 'Щелчок тетивы и выстрел' },
+  { id: 'heal_spell', label: 'Исцеление', icon: '✨', desc: 'Магический перезвон' },
+  { id: 'magic_teleport', label: 'Телепорт', icon: '🌀', desc: 'Пространственный импульс' },
+  { id: 'thunderclap', label: 'Удар грома', icon: '⚡', desc: 'Раскат настоящего грома' },
 ];
 
-const PRESET_OPTIONS: { id: AmbientSoundPreset; label: string; icon: any }[] = [
-  { id: 'campfire', label: 'Костер / Факел', icon: Flame },
-  { id: 'water_stream', label: 'Водопад / Вода', icon: Waves },
-  { id: 'dungeon_drone', label: 'Гул крипты', icon: Music },
-  { id: 'tavern_crowd', label: 'Шум таверны', icon: Sparkles },
-  { id: 'wind_whisper', label: 'Ветер в проеме', icon: Wind },
-  { id: 'arcane_hum', label: 'Магический алтарь', icon: Zap },
+const PRESET_OPTIONS: {
+  id: AmbientSoundPreset;
+  label: string;
+  desc: string;
+  icon: any;
+  defaultUrl?: string;
+}[] = [
+  {
+    id: 'campfire',
+    label: 'Костёр / Факел',
+    desc: 'Потрескивание огня',
+    icon: Flame,
+    defaultUrl: AMBIENT_PRESET_URLS.campfire.primary,
+  },
+  {
+    id: 'water_stream',
+    label: 'Вода / Фонтан / Река',
+    desc: 'Журчание воды',
+    icon: Waves,
+    defaultUrl: AMBIENT_PRESET_URLS.water_stream.primary,
+  },
+  {
+    id: 'arcane_hum',
+    label: 'Портал / Магия',
+    desc: 'Низкий гул',
+    icon: Zap,
+    defaultUrl: AMBIENT_PRESET_URLS.arcane_hum.primary,
+  },
+  {
+    id: 'tavern_crowd',
+    label: 'Таверна',
+    desc: 'Гул голосов',
+    icon: Sparkles,
+    defaultUrl: AMBIENT_PRESET_URLS.tavern_crowd.primary,
+  },
+  {
+    id: 'dungeon_drone',
+    label: 'Гул крипты',
+    desc: 'Эмбиент подземелья',
+    icon: Music,
+    defaultUrl: AMBIENT_PRESET_URLS.dungeon_drone.primary,
+  },
+  {
+    id: 'wind_whisper',
+    label: 'Ветер в проеме',
+    desc: 'Завывание сквозняка',
+    icon: Wind,
+    defaultUrl: AMBIENT_PRESET_URLS.wind_whisper.primary,
+  },
+  {
+    id: 'custom',
+    label: 'Свой MP3 / OGG URL',
+    desc: 'Прямая ссылка на аудиофайл',
+    icon: Link2,
+  },
 ];
 
 export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
@@ -83,7 +132,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
   onFocusPosition,
 }) => {
   const isGM = role === 'GM';
-  const [activeTab, setActiveTab] = useState<'soundboard' | 'sources' | 'music'>('soundboard');
+  const [activeTab, setActiveTab] = useState<'soundboard' | 'sources' | 'music'>('sources');
   const [masterVolume, setMasterVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
@@ -101,13 +150,13 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
   };
 
   const handlePlaySfx = (type: OneShotSfxType) => {
-    spatialAudio.unlockContext();
-    spatialAudio.playOneShotSfx(type);
+    void spatialAudio.unlockContext();
+    void spatialAudio.playOneShotSfx(type);
     onBroadcastSfx(type);
   };
 
   const handleSelectTrack = (track: GlobalMusicTrack) => {
-    spatialAudio.unlockContext();
+    void spatialAudio.unlockContext();
     const isCombat = track.startsWith('combat_');
     const nextState: GlobalMusicState = {
       ...globalMusic,
@@ -119,7 +168,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
   };
 
   const handleToggleCombatMusic = () => {
-    spatialAudio.unlockContext();
+    void spatialAudio.unlockContext();
     const targetTrack: GlobalMusicTrack = globalMusic.isCombatMode
       ? 'ambient_dungeon'
       : 'combat_epic';
@@ -140,7 +189,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-amber-400" />
             <h2 className="font-display text-sm font-bold text-slate-100">
-              Аудио и Саундборд VTT
+              Пространственное Аудио (Web Audio API)
             </h2>
           </div>
 
@@ -176,18 +225,8 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
           </span>
         </div>
 
-        {/* 3 Sub-Tabs: SFX, Источники на карте, Музыка */}
+        {/* 3 Sub-Tabs: Источники на карте, SFX, Музыка */}
         <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs">
-          <button
-            onClick={() => setActiveTab('soundboard')}
-            className={`py-1.5 rounded-lg font-medium transition-colors ${
-              activeTab === 'soundboard'
-                ? 'bg-amber-500 text-slate-950 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Саундборд
-          </button>
           <button
             onClick={() => setActiveTab('sources')}
             className={`py-1.5 rounded-lg font-medium transition-colors ${
@@ -197,6 +236,16 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
             }`}
           >
             Источники ({audioSources.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('soundboard')}
+            className={`py-1.5 rounded-lg font-medium transition-colors ${
+              activeTab === 'soundboard'
+                ? 'bg-amber-500 text-slate-950 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Саундборд
           </button>
           <button
             onClick={() => setActiveTab('music')}
@@ -213,77 +262,25 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
 
       {/* Main Tab Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        {/* TAB 1: ONE-SHOT SFX SOUNDBOARD */}
-        {activeTab === 'soundboard' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xs font-semibold text-slate-200">
-                  Мгновенные звуковые эффекты (SFX)
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  Воспроизводится синхронно у всех подключенных игроков.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {ONE_SHOT_SFX.map((sfx) => (
-                <button
-                  key={sfx.id}
-                  onClick={() => handlePlaySfx(sfx.id)}
-                  className="group relative flex flex-col items-start p-3 bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/50 rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] text-left"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-base">{sfx.icon}</span>
-                    <span className="font-bold text-xs text-slate-100 group-hover:text-amber-300 transition-colors">
-                      {sfx.label}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-400 leading-tight">
-                    {sfx.desc}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Quick Combat Music Crossfade Button */}
-            {isGM && (
-              <div className="pt-2 border-t border-slate-800">
-                <button
-                  onClick={handleToggleCombatMusic}
-                  className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl border font-bold text-xs transition-all shadow-md ${
-                    globalMusic.isCombatMode
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-300 hover:bg-rose-500/30'
-                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                  }`}
-                >
-                  <Swords className="w-4 h-4" />
-                  {globalMusic.isCombatMode
-                    ? 'Завершить бой (Crossfade в эмбиент)'
-                    : 'Включить боевую музыку (Combat Crossfade)'}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 2: POSITIONAL MAP AUDIO SOURCES */}
+        {/* TAB 1: POSITIONAL MAP AUDIO SOURCES */}
         {activeTab === 'sources' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-xs font-semibold text-slate-200">
-                  Пространственный 2D-звук
+                  Источники 2D-звука на карте
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  Звук позиционируется в наушниках и глушится стенами.
+                  Реальные аудиофайлы (OGG/MP3) с панорамой, затуханием и LowPass-глушением стенами.
                 </p>
               </div>
 
               {isGM && (
                 <button
-                  onClick={() => onCreateAudioSource('campfire')}
+                  onClick={() => {
+                    void spatialAudio.unlockContext();
+                    onCreateAudioSource('campfire');
+                  }}
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg transition-colors whitespace-nowrap shadow-sm"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -300,17 +297,21 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                   <p>На карте еще нет источников звука.</p>
                   {isGM && (
                     <p className="text-[11px] text-slate-600 mt-1">
-                      Нажмите «Добавить» или выберите инструмент на панели.
+                      Нажмите «Добавить» или выберите инструмент размещения на левой панели.
                     </p>
                   )}
                 </div>
               ) : (
                 audioSources.map((source) => {
                   const isSelected = source.id === selectedAudioSourceId;
+                  const presetMeta = PRESET_OPTIONS.find((p) => p.id === source.preset);
                   return (
                     <div
                       key={source.id}
-                      onClick={() => onSelectAudioSource(source.id)}
+                      onClick={() => {
+                        void spatialAudio.unlockContext();
+                        onSelectAudioSource(source.id);
+                      }}
                       className={`p-3 rounded-xl border transition-all cursor-pointer ${
                         isSelected
                           ? 'bg-slate-800/90 border-amber-500 shadow-md'
@@ -358,21 +359,22 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
 
                       {/* Controls row */}
                       <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>
-                          Тип:{' '}
-                          <strong className="text-slate-300">
-                            {PRESET_OPTIONS.find((p) => p.id === source.preset)?.label || 'Свой'}
+                        <span className="truncate max-w-[140px]">
+                          Пресет:{' '}
+                          <strong className="text-slate-200">
+                            {presetMeta?.label || 'Свой URL'}
                           </strong>
                         </span>
 
                         <span className="font-mono-tabular">
-                          Зона: {Math.round(source.minDistance)} – {Math.round(source.maxDistance)} px
+                          {Math.round(source.minDistance)}–{Math.round(source.maxDistance)} px
                         </span>
 
                         {isGM && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              void spatialAudio.unlockContext();
                               onUpdateAudioSource({
                                 ...source,
                                 isPlaying: !source.isPlaying,
@@ -384,7 +386,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                                 : 'bg-slate-800 text-slate-500'
                             }`}
                           >
-                            {source.isPlaying ? 'Играет' : 'Пауза'}
+                            {source.isPlaying ? 'Loop: ВКЛ' : 'Пауза'}
                           </button>
                         )}
                       </div>
@@ -408,43 +410,89 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] text-slate-400">Название:</label>
+                  <label className="text-[11px] text-slate-400">Название источника:</label>
                   <input
                     type="text"
                     value={selectedSource.name}
                     onChange={(e) =>
                       onUpdateAudioSource({ ...selectedSource, name: e.target.value })
                     }
-                    className="w-full px-2.5 py-1 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-100"
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-amber-500"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-400">Пресет звука:</label>
+                {/* Preset Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] text-slate-400 block">
+                    Пресет реального звука (Loop = true):
+                  </label>
                   <div className="grid grid-cols-2 gap-1.5">
                     {PRESET_OPTIONS.map((opt) => (
                       <button
                         key={opt.id}
-                        onClick={() =>
-                          onUpdateAudioSource({ ...selectedSource, preset: opt.id })
-                        }
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] border text-left transition-colors ${
+                        type="button"
+                        onClick={() => {
+                          void spatialAudio.unlockContext();
+                          onUpdateAudioSource({
+                            ...selectedSource,
+                            preset: opt.id,
+                            // Clear custom URL when switching back to a standard preset unless choosing 'custom'
+                            url: opt.id === 'custom' ? selectedSource.url || '' : undefined,
+                          });
+                        }}
+                        className={`flex flex-col items-start p-2 rounded-lg text-[11px] border text-left transition-colors ${
                           selectedSource.preset === opt.id
-                            ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-semibold'
-                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850'
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
                         }`}
                       >
-                        <opt.icon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span className="truncate">{opt.label}</span>
+                        <div className="flex items-center gap-1.5 font-semibold w-full">
+                          <opt.icon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">{opt.label}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-0.5 truncate w-full">
+                          {opt.desc}
+                        </span>
                       </button>
                     ))}
                   </div>
                 </div>
 
+                {/* Custom Audio File URL Input (MP3 / OGG / WAV) */}
+                <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+                  <label className="text-[11px] text-slate-300 flex items-center gap-1.5 font-medium">
+                    <Link2 className="w-3.5 h-3.5 text-amber-400" />
+                    Своя ссылка на аудиофайл (MP3 / OGG / WAV):
+                  </label>
+                  <input
+                    type="url"
+                    value={selectedSource.url || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onUpdateAudioSource({
+                        ...selectedSource,
+                        preset: val.trim() ? 'custom' : selectedSource.preset,
+                        url: val,
+                      });
+                    }}
+                    placeholder="https://example.com/audio/campfire.ogg"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono-tabular bg-slate-900 border border-slate-800 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Если поле пустое, используется встроенный аудиофайл выбранного пресета (
+                    <span className="text-slate-400 font-mono-tabular">
+                      {selectedSource.preset !== 'custom'
+                        ? AMBIENT_PRESET_URLS[selectedSource.preset]?.label
+                        : 'Свой URL'}
+                    </span>
+                    ).
+                  </p>
+                </div>
+
                 {/* Volume Slider */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-400">Громкость источника:</span>
+                    <span className="text-slate-400">Базовая громкость:</span>
                     <span className="font-mono-tabular text-amber-400">
                       {Math.round(selectedSource.volume * 100)}%
                     </span>
@@ -468,7 +516,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                 {/* Distance Radii */}
                 <div className="grid grid-cols-2 gap-3 text-[11px]">
                   <div className="space-y-1">
-                    <span className="text-slate-400">100% громкость:</span>
+                    <span className="text-slate-400">100% громкость (min):</span>
                     <input
                       type="range"
                       min={40}
@@ -489,7 +537,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-slate-400">Радиус затухания:</span>
+                    <span className="text-slate-400">Затухание в 0% (max):</span>
                     <input
                       type="range"
                       min={selectedSource.minDistance + 30}
@@ -514,6 +562,61 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
           </div>
         )}
 
+        {/* TAB 2: ONE-SHOT SFX SOUNDBOARD */}
+        {activeTab === 'soundboard' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-semibold text-slate-200">
+                  Мгновенные звуковые эффекты (SFX)
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Реальные сэмплы, воспроизводимые синхронно у всех подключенных игроков.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {ONE_SHOT_SFX.map((sfx) => (
+                <button
+                  key={sfx.id}
+                  onClick={() => handlePlaySfx(sfx.id)}
+                  className="group relative flex flex-col items-start p-3 bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/50 rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] text-left"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{sfx.icon}</span>
+                    <span className="font-bold text-xs text-slate-100 group-hover:text-amber-300 transition-colors">
+                      {sfx.label}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 leading-tight">
+                    {sfx.desc}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Combat Music Crossfade Button */}
+            {isGM && (
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  onClick={handleToggleCombatMusic}
+                  className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl border font-bold text-xs transition-all shadow-md ${
+                    globalMusic.isCombatMode
+                      ? 'bg-rose-500/20 border-rose-500 text-rose-300 hover:bg-rose-500/30'
+                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  }`}
+                >
+                  <Swords className="w-4 h-4" />
+                  {globalMusic.isCombatMode
+                    ? 'Завершить бой (Crossfade в эмбиент)'
+                    : 'Включить боевую атмосферу (Combat Crossfade)'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* TAB 3: GLOBAL AMBIENCE & COMBAT MUSIC */}
         {activeTab === 'music' && (
           <div className="space-y-4">
@@ -522,14 +625,14 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                 Глобальный фоновый эмбиент и музыка
               </h3>
               <p className="text-[11px] text-slate-400">
-                Фоновый трек без позиционирования, слышен всей группе.
+                Фоновый трек без 2D-позиционирования, слышен всей группе.
               </p>
             </div>
 
             {/* Global Music Volume */}
             <div className="space-y-1.5 p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
               <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Громкость музыки:</span>
+                <span className="text-slate-400">Громкость фона:</span>
                 <span className="font-mono-tabular text-amber-400">
                   {Math.round(globalMusic.volume * 100)}%
                 </span>
@@ -551,10 +654,37 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
               />
             </div>
 
+            {/* Custom Global Music URL */}
+            {isGM && (
+              <div className="space-y-1.5 p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+                <label className="text-[11px] text-slate-300 flex items-center gap-1.5 font-medium">
+                  <Link2 className="w-3.5 h-3.5 text-amber-400" />
+                  Свой URL фоновой музыки (MP3 / OGG):
+                </label>
+                <input
+                  type="url"
+                  value={globalMusic.customUrl || ''}
+                  onChange={(e) =>
+                    onUpdateGlobalMusic({
+                      ...globalMusic,
+                      customUrl: e.target.value,
+                      isPlaying: true,
+                      currentTrack:
+                        globalMusic.currentTrack === 'none'
+                          ? 'ambient_dungeon'
+                          : globalMusic.currentTrack,
+                    })
+                  }
+                  placeholder="https://example.com/music/dungeon_theme.mp3"
+                  className="w-full px-2.5 py-1.5 text-xs font-mono-tabular bg-slate-950 border border-slate-800 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            )}
+
             {/* Track selector */}
             <div className="space-y-2">
               <span className="text-[11px] text-slate-400 font-semibold block">
-                Выберите трек:
+                Выберите пресет атмосферы:
               </span>
               <div className="grid grid-cols-1 gap-2">
                 {GLOBAL_TRACKS.map((trk) => {
@@ -579,7 +709,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                             {trk.label}
                           </div>
                           <div className="text-[10px] text-slate-400">
-                            {trk.category === 'combat' ? 'Боевой саундтрек' : 'Атмосферный эмбиент'}
+                            {trk.category === 'combat' ? 'Боевой режим' : 'Атмосферный эмбиент'}
                           </div>
                         </div>
                       </div>
@@ -607,7 +737,7 @@ export const AudioSoundboard: React.FC<AudioSoundboardProps> = ({
                 }
                 className="w-full py-2 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-xl transition-colors"
               >
-                Остановить музыку
+                Остановить фоновое аудио
               </button>
             )}
           </div>
